@@ -1,0 +1,1566 @@
+\chapter{位元 DP 與旅行推銷員}
+\label{ch:bitmask-dp}
+
+\tikzset{
+    bmnode/.style={draw=black!55, rounded corners=2pt, fill=white, font=\small,
+        inner sep=3pt, minimum height=0.6cm},
+    bmpath/.style={draw=memStroke, thick, fill=memFill},
+    bmedge/.style={draw=black!25},
+    bmpathedge/.style={draw=memStroke, very thick},
+    bmtile/.style={draw=coreStroke, thick, fill=coreFill, rounded corners=2pt},
+    bmpillar/.style={fill=black!70},
+}
+
+營隊有四個關卡，四位關主 A、B、C、D。 每位關主顧每一關的熟練程度不同，下
+表是事前評估的分數，越高越好。 一人顧一關，每一關恰好一人，怎麼分配總分最
+高？ 往下讀之前，先想一條規則，例如「從第 $0$ 關開始，每一關挑剩下的人裡最
+熟練的」，照你的規則算一次總分。
+
+\begin{center}
+\begin{tabular}{c|cccc}
+\toprule
+關主 \textbackslash{} 關卡 & 0 & 1 & 2 & 3 \\
+\midrule
+A & 6 & 4 & 9 & 4 \\
+B & 6 & 3 & 6 & 8 \\
+C & 7 & 3 & 3 & 3 \\
+D & 8 & 6 & 6 & 4 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+《C++ 演算法解題 1：APCS 實作題核心》（以下簡稱第 1 本）第~4~章 4.2 節用一個
+整數的二進位表示「挑了哪些東西」，把 $2^n$ 種挑法一個一個試過。 這一章把同
+一個整數拿來當動態規劃的\textbf{狀態}：前幾章 $\mathrm{dp}$ 的索引是「前 $i$
+個」或「第 $l$ 到第 $r$ 個」，這一章的索引是一個集合，例如「已經排好的是哪幾
+位關主」「已經去過哪幾個地方」。 集合用位元遮罩存，所以這種動態規劃叫\textbf{位元
+DP}（bitmask DP），也常被叫做狀態壓縮 DP。
+
+第~\ref{sec:bm-set}~節用關主的問題說明集合為什麼可以當狀態，把 $n!$ 種排法降
+到 $2^n \cdot n$。 第~\ref{sec:bm-tsp}~節是最有名的位元 DP：從家出發，每個地
+方去一次再回家，怎麼走最短，也就是\textbf{旅行推銷員問題}（traveling salesman
+problem，常簡稱 TSP），這時還要記「現在停在哪裡」。 第~\ref{sec:bm-submask}
+~節列舉子集合的子集合，第~\ref{sec:bm-tiling}~節一列一列鋪地磚，中間也會算
+清楚這種表格要多少記憶體。
+
+動態規劃的四件事（狀態、轉移、初始值、計算順序）和往前推、往回拉兩種寫法，
+第 1 本第~9~章都講過；第 1 本第~4~章 4.2 節講過位元遮罩，第~\ref{sec:bm-set}
+~節會用一個框回顧。 語法只用到 \texttt{vector} 和 GCC 內建的
+\texttt{\_\_builtin\_popcount}、\texttt{\_\_builtin\_ctz}，用到時再說明。
+
+\section{把集合當成狀態}
+\label{sec:bm-set}
+
+\subsection{先試貪心，再寫暴力解}
+
+章首的規則「每一關挑剩下的人裡最熟練的」是這樣走的：第 $0$ 關四個人的分數
+是 $6, 6, 7, 8$，挑 D；第 $1$ 關剩 A、B、C，分數 $4, 3, 3$，挑 A；第 $2$ 關
+剩 B、C，挑 B；第 $3$ 關只剩 C。 總分 $8 + 4 + 6 + 3 = 21$。 另一種排法是
+C 顧第 $0$ 關、D 顧第 $1$ 關、A 顧第 $2$ 關、B 顧第 $3$ 關，總分
+$7 + 6 + 9 + 8 = 30$。
+
+貪心在第 $0$ 關拿走 D，只比 C 多 $1$ 分；可是第 $1$ 關除了 D 以外，每個人都
+只有 $3$、$4$ 分。 前面的選擇把後面需要的人用掉了，這是貪心常見的失敗方式。
+
+最直接的做法是試遍所有排法：第 $0$ 關有 $n$ 個人可以選，第 $1$ 關剩 $n - 1$
+個，一共 $n!$ 種。 第 1 本第~4~章 4.3 節用回溯列出排列，\texttt{used[x]} 記錄哪
+些數已經用過；這裡照做就好。 $n = 10$ 時 $10! \approx 3.6 \times 10^6$ 種，
+來得及；$n = 16$ 時 $16! \approx 2.1 \times 10^{13}$ 種，跑不完。
+
+\subsection{看已經用掉哪些人}
+\label{sec:bm-state}
+
+照關卡的順序一關一關排。 假設第 $0$、$1$ 關已經排好，用掉的是 A 和 B，有兩
+種排法：
+
+\begin{itemize}
+\item A 顧第 $0$ 關、B 顧第 $1$ 關：$6 + 3 = 9$ 分。
+\item B 顧第 $0$ 關、A 顧第 $1$ 關：$6 + 4 = 10$ 分。
+\end{itemize}
+
+接下來第 $2$、$3$ 關只能由 C、D 來顧，不管前面是哪一種，後面的選擇和得分都
+完全一樣。 所以 $9$ 分那種不可能出現在最佳解裡，只要記住 $10$ 就好。 後面的
+事只看「哪些人已經用掉」，不看他們用掉的順序；回溯法的 \texttt{used} 陣列，
+正好就是這個資訊。
+
+用掉幾個人，就表示排好了幾關，所以「下一關是第幾關」也由這個集合決定。 狀態
+定成：
+
+\begin{center}
+\fbox{\parbox{0.86\linewidth}{\centering
+$\mathrm{dp}(S)$：集合 $S$ 裡的關主剛好顧滿第 $0$ 到第 $|S| - 1$ 關時，總分的最大值。}}
+\end{center}
+
+$|S|$ 是 $S$ 的元素個數。 照四件事寫下來：
+
+\begin{enumerate}
+\item \textbf{狀態}：$n$ 個人的每一個子集合都是一個狀態，共 $2^n$ 個。
+\item \textbf{轉移}：從 $S$ 往前推。 下一關是第 $k = |S|$ 關，挑一個不在 $S$
+裡的人 $v$ 來顧：
+\[
+\mathrm{dp}(S \cup \{v\}) \leftarrow \mathrm{dp}(S) + a_{v,k},
+\]
+箭頭表示「如果比較大就更新」。 也可以往回拉：$\mathrm{dp}(S)$ 看最後一關
+（第 $|S| - 1$ 關）是 $S$ 裡的誰顧的，取
+$\max_{v \in S} \bigl(\mathrm{dp}(S \setminus \{v\}) + a_{v,|S|-1}\bigr)$。
+\item \textbf{初始值}：$\mathrm{dp}(\varnothing) = 0$，一關都還沒排。
+\item \textbf{計算順序}：每個轉移都從小的集合走到多一個元素的集合，所以只要
+元素少的先算。 下面會看到，用整數存集合時，直接照整數由小到大就對了。
+\end{enumerate}
+
+答案是 $\mathrm{dp}(\{A, B, C, D\})$。 圖~\ref{fig:bm-lattice} 把十六個狀態依元素個數排成五層，
+每條線是「多排一個人」，框裡是 $\mathrm{dp}$ 的值。
+
+
+走一個例子：$\mathrm{dp}(\{A, B\}) = 10$ 有兩條線進來，從 $\{A\}$ 來是 B 顧
+第 $1$ 關，$6 + 3 = 9$；從 $\{B\}$ 來是 A 顧第 $1$ 關，$6 + 4 = 10$。 這就是
+上面那兩種排法，表格只留下比較好的那個。 一條從頂端走到底部的路就是一種排法，
+共 $4! = 24$ 條，可是框只有 $16$ 個：很多條路在中間走進同一個框，動態規劃在那
+裡只留最好的一條。
+
+這張圖就是第 1 本第~9~章 9.2 節「把動態規劃畫成圖」的圖：點是狀態，線是轉移。
+位元 DP 的點特別多（$2^n$ 個），但每個點只有 $n$ 條線出去。
+
+\begin{center}
+\begin{tikzpicture}[x=1.05cm, y=0.78cm]
+\node[bmnode, bmpath] (nE) at (0.00,0.00) {$\varnothing$\,:\,0};
+\node[bmnode] (nA) at (-4.50,-1.45) {A\,:\,6};
+\node[bmnode] (nB) at (-1.50,-1.45) {B\,:\,6};
+\node[bmnode, bmpath] (nC) at (1.50,-1.45) {C\,:\,7};
+\node[bmnode] (nD) at (4.50,-1.45) {D\,:\,8};
+\node[bmnode] (nAB) at (-5.75,-2.90) {AB\,:\,10};
+\node[bmnode] (nAC) at (-3.45,-2.90) {AC\,:\,11};
+\node[bmnode] (nBC) at (-1.15,-2.90) {BC\,:\,10};
+\node[bmnode] (nAD) at (1.15,-2.90) {AD\,:\,12};
+\node[bmnode] (nBD) at (3.45,-2.90) {BD\,:\,12};
+\node[bmnode, bmpath] (nCD) at (5.75,-2.90) {CD\,:\,13};
+\node[bmnode] (nABC) at (-4.50,-4.35) {ABC\,:\,19};
+\node[bmnode] (nABD) at (-1.50,-4.35) {ABD\,:\,21};
+\node[bmnode, bmpath] (nACD) at (1.50,-4.35) {ACD\,:\,22};
+\node[bmnode] (nBCD) at (4.50,-4.35) {BCD\,:\,19};
+\node[bmnode, bmpath] (nABCD) at (0.00,-5.80) {ABCD\,:\,30};
+\begin{scope}[on background layer]
+\draw[bmedge] (nE) -- (nA);
+\draw[bmedge] (nE) -- (nB);
+\draw[bmedge, bmpathedge] (nE) -- (nC);
+\draw[bmedge] (nE) -- (nD);
+\draw[bmedge] (nA) -- (nAB);
+\draw[bmedge] (nA) -- (nAC);
+\draw[bmedge] (nA) -- (nAD);
+\draw[bmedge] (nB) -- (nAB);
+\draw[bmedge] (nB) -- (nBC);
+\draw[bmedge] (nB) -- (nBD);
+\draw[bmedge] (nAB) -- (nABC);
+\draw[bmedge] (nAB) -- (nABD);
+\draw[bmedge] (nC) -- (nAC);
+\draw[bmedge] (nC) -- (nBC);
+\draw[bmedge, bmpathedge] (nC) -- (nCD);
+\draw[bmedge] (nAC) -- (nABC);
+\draw[bmedge] (nAC) -- (nACD);
+\draw[bmedge] (nBC) -- (nABC);
+\draw[bmedge] (nBC) -- (nBCD);
+\draw[bmedge] (nABC) -- (nABCD);
+\draw[bmedge] (nD) -- (nAD);
+\draw[bmedge] (nD) -- (nBD);
+\draw[bmedge] (nD) -- (nCD);
+\draw[bmedge] (nAD) -- (nABD);
+\draw[bmedge] (nAD) -- (nACD);
+\draw[bmedge] (nBD) -- (nABD);
+\draw[bmedge] (nBD) -- (nBCD);
+\draw[bmedge] (nABD) -- (nABCD);
+\draw[bmedge, bmpathedge] (nCD) -- (nACD);
+\draw[bmedge] (nCD) -- (nBCD);
+\draw[bmedge, bmpathedge] (nACD) -- (nABCD);
+\draw[bmedge] (nBCD) -- (nABCD);
+\end{scope}
+\end{tikzpicture}
+\diagcaption{關主問題的十六個狀態。 第 $k$ 層是用掉 $k$ 個人、排好前 $k$ 關。
+橘色是最佳解的一條路：C、D、A、B 依序顧第 $0$ 到第 $3$ 關。}
+\label{fig:bm-lattice}
+\end{center}
+
+\subsection{用整數存集合}
+\label{sec:bm-bits}
+
+\begin{prevbookrecap}[第~4~章 4.2 節：位元遮罩]
+$n$ 個東西編號 $0$ 到 $n - 1$，一個子集合寫成 $n$ 位的二進位數，第 $i$ 位是
+$1$ 表示第 $i$ 個在集合裡。 例如 $n = 4$ 時 $\{A, C, D\}$ 是二進位
+\texttt{1101}，也就是整數 $13$（最右邊是第 $0$ 位，代表 A）。
+\begin{itemize}
+\item \texttt{1 << n} 是 $2^n$，\texttt{for (int mask = 0; mask < (1 << n); mask++)}
+走過每一個子集合一次。
+\item \texttt{(mask >> i) \& 1} 是第 $i$ 位，$1$ 表示 $i$ 在集合裡。
+\item \texttt{mask | (1 << i)} 把 $i$ 加進集合（第 1 本第~4~章 4.6 節用過）。
+\item \texttt{1 << 31} 已經超出 \texttt{int}；有 \texttt{\&} 又有比較時要加括
+號，\texttt{mask \& 1 << i == 0} 會先算 \texttt{==}。
+\end{itemize}
+\end{prevbookrecap}
+
+位元 DP 還會用到幾個新的寫法。 下表的例子都用 $x = 44$，二進位
+\texttt{101100}：
+
+\begin{center}
+\begin{tabular}{p{0.3\linewidth}p{0.36\linewidth}l}
+\toprule
+寫法 & 意思 & $x = 44$ 時 \\
+\midrule
+\texttt{x \& \textasciitilde(1 << i)} & 把 $i$ 拿掉 & $i = 3$：\texttt{100100} \\
+\texttt{x \^{} (1 << i)} & 第 $i$ 位反過來（確定在集合裡時，就是拿掉） & $i = 2$：\texttt{101000} \\
+\texttt{(a \& b) == a} & $a$ 是不是 $b$ 的子集合 & \\
+\texttt{\_\_builtin\_popcount(x)} & 有幾個 $1$，也就是 $|S|$ & $3$ \\
+\texttt{x \& -x} & 只留下最低的那個 $1$ & \texttt{000100}，$4$ \\
+\texttt{\_\_builtin\_ctz(x)} & 最低的 $1$ 在第幾位（$x \ne 0$） & $2$ \\
+\texttt{x \& (x - 1)} & 把最低的那個 $1$ 拿掉 & \texttt{101000}，$40$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+\item \texttt{\_\_builtin\_popcount}、\texttt{\_\_builtin\_ctz} 是 GCC 和 Clang
+內建的函式，不用 \texttt{include}。 \texttt{ctz} 是 count trailing zeros，
+數最右邊有幾個 $0$；$x = 0$ 時結果沒有定義，不能用。
+\item \texttt{x - 1} 會把最低的 $1$ 變成 $0$、它右邊的 $0$ 全變成 $1$，其他位
+不動：\texttt{101100} 減 $1$ 是 \texttt{101011}。 和 $x$ 做 AND，最低的 $1$
+和它右邊都變成 $0$，就是 \texttt{101000}。
+\item \texttt{-x} 在電腦裡是「每一位反過來再加 $1$」。 \texttt{101100} 反過來
+是 \texttt{010011}，加 $1$ 是 \texttt{010100}；和 $x$ 只有最低的 $1$ 那一位
+相同。
+\end{itemize}
+
+用整數存集合還有一個好處：把元素 $v$ 加進集合，整數只會變大，因為
+\texttt{mask | (1 << v)} 多了一個 $1$。 所以「元素少的先算」不用另外安排，
+\texttt{mask} 從 $0$ 數到 $2^n - 1$ 時，每個狀態被用來往前推之前，所有能走到
+它的狀態都已經處理過了。 拿掉一個元素也一樣，\texttt{mask \^{} (1 << v)} 一定
+比 \texttt{mask} 小，往回拉也照整數由小到大算。
+
+\subsection{\texorpdfstring{從 $n!$ 到 $2^n \cdot n$}{從 n! 到 2ⁿ·n}}
+\label{sec:bm-cost}
+
+關主問題有 $2^n$ 個狀態，每個狀態試 $n$ 個人，總共 $O(2^n \cdot n)$。 和
+$n!$ 比一比：
+
+\begin{center}
+\begin{tabular}{rrrrrr}
+\toprule
+$n$ & $n!$ & $2^n$ & $2^n \cdot n$ & $2^n \cdot n^2$ & $3^n$ \\
+\midrule
+$10$ & $3.6 \times 10^{6}$ & $1024$ & $1.0 \times 10^{4}$ & $1.0 \times 10^{5}$ & $5.9 \times 10^{4}$ \\
+$16$ & $2.1 \times 10^{13}$ & $65536$ & $1.0 \times 10^{6}$ & $1.7 \times 10^{7}$ & $4.3 \times 10^{7}$ \\
+$18$ & $6.4 \times 10^{15}$ & $2.6 \times 10^{5}$ & $4.7 \times 10^{6}$ & $8.5 \times 10^{7}$ & $3.9 \times 10^{8}$ \\
+$20$ & $2.4 \times 10^{18}$ & $1.0 \times 10^{6}$ & $2.1 \times 10^{7}$ & $4.2 \times 10^{8}$ & $3.5 \times 10^{9}$ \\
+$25$ & $1.6 \times 10^{25}$ & $3.4 \times 10^{7}$ & $8.4 \times 10^{8}$ & $2.1 \times 10^{10}$ & $8.5 \times 10^{11}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+$2^n$ 仍然是指數，只是長得比 $n!$ 慢很多。 所以位元 DP 只能處理很小的 $n$，
+這也是辨認它的訊號：題目裡某個量只到 $15$、$16$、$20$ 左右，其他量（例如時
+間、距離、詢問數）卻很大。 這時多半是要把那十幾個東西的「有或沒有」當成狀態。
+後面兩欄是本章另外兩種轉移的量：旅行推銷員每個狀態要多看一層「停在哪裡」，是
+$2^n \cdot n^2$；第~\ref{sec:bm-submask}~節列舉子集合的子集合，是 $3^n$。
+
+\section{例題：成果發表會的出場順序}
+\label{sec:ex-bm-show}
+
+\textbf{題意}（\akiref{running-order-for-the-club-showcase}{成果發表會的出場順序}）
+
+\begin{itemize}
+\item 社團成果發表會有 $n$ 個節目，舞台時間切成 $n$ 個時段，一個時段排一個
+節目。 節目 $i$ 排在第 $s$ 個時段，評分是 $a_{i,s}$；總評分是每個節目在它所
+排時段的評分總和。
+\item 另外有 $m$ 條前後限制「節目 $u$ 的時段要比節目 $v$ 早」，兩者不必相
+鄰。
+\item 求滿足所有限制時總評分的最大值；限制互相矛盾、排不出來時輸出 $-1$。
+$n \le 16$，$a_{i,s} \le 10^6$。
+\end{itemize}
+
+例如 $n = 4$，評分是下表，限制是「$1$ 比 $2$ 早」「$4$ 比 $3$ 早」：
+
+\begin{center}
+\begin{tabular}{c|cccc}
+\toprule
+節目 \textbackslash{} 時段 & 1 & 2 & 3 & 4 \\
+\midrule
+1 & 3 & 3 & 8 & 7 \\
+2 & 5 & 0 & 0 & 4 \\
+3 & 7 & 4 & 3 & 9 \\
+4 & 5 & 7 & 5 & 5 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+不管限制的話，排成 $2, 4, 1, 3$ 可以拿 $5 + 7 + 8 + 9 = 29$，但節目 $2$ 跑到
+節目 $1$ 前面了。 滿足限制的排法裡最好的是 $4, 3, 1, 2$，總評分
+$5 + 4 + 8 + 4 = 21$。
+
+\textbf{想法}
+
+拿掉限制，這就是上一節的關主問題：節目是關主，時段是關卡。 暴力解仍然是試
+$n!$ 種順序、跳過違反限制的，只能拿來在小的 $n$ 對拍。
+
+\textbf{限制也只看集合。} 照時段的順序一個一個排。 要把節目 $v$ 排進下一個時
+段，所有必須比 $v$ 早的節目都要已經排好，也就是都在 $S$ 裡。 這個條件只看
+「哪些節目已經排了」，和它們的順序無關，所以狀態仍然是 $S$。 把「必須比 $v$
+早的節目」也存成一個遮罩 $\mathit{need}_v$，讀到限制 $u, v$ 時把 $u$ 那一位
+加進 $\mathit{need}_v$。 檢查 $v$ 能不能排，只要看 $\mathit{need}_v$ 是不是
+$S$ 的子集合：
+\[
+(\mathit{need}_v \mathbin{\&} S) = \mathit{need}_v .
+\]
+
+\textbf{有些集合排不出來。} 例如 $\{2\}$：節目 $2$ 要等節目 $1$，它不可能是
+第一個時段的節目。 這種集合在前面幾個時段永遠不會出現，$\mathrm{dp}$ 要記成
+「不可能」，不能是 $0$。 如果寫成 $0$，程式會假裝「節目 $2$ 先上台、拿 $0$
+分」是一種合法的開頭，從它接下去，算出不存在的排法（見本節的常見錯誤）。
+評分都不是負的，這裡用 $-1$ 表示不可能；限制矛盾時，全集也走不到，
+$\mathrm{dp}$ 的值剛好就是題目要的 $-1$。
+
+\begin{center}
+\fbox{\parbox{0.86\linewidth}{\centering
+$\mathrm{dp}(S)$：$S$ 裡的節目剛好排滿前 $|S|$ 個時段、而且沒有違反限制時，總評
+分的最大值；排不出來時是 $-1$。}}
+\end{center}
+
+同樣的模型也出現在別的地方：工廠把 $n$ 道工序排進 $n$ 個時段，每個時段的電
+費不同，有些工序要等前一道做完。 看到「把 $n$ 個東西排成一列，分數和位置有
+關，$n$ 很小」，就可以用排好的集合當狀態。
+
+\textbf{程式}
+
+\begin{example}[label=ex:bm-show]{cpp}{(show.cpp) 成果發表會的出場順序}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n, m;
+    cin >> n >> m;
+    vector<vector<int>> a(n, vector<int>(n));    // a[i][s]：節目 i 排在第 s 個時段
+    for (int i = 0; i < n; i++) {
+        for (int s = 0; s < n; s++) {
+            cin >> a[i][s];
+        }
+    }
+    vector<int> need(n, 0);                       // need[v]：必須比 v 早的節目
+    for (int k = 0; k < m; k++) {
+        int u, v;
+        cin >> u >> v;
+        need[v - 1] |= 1 << (u - 1);
+    }
+    int full = (1 << n) - 1;
+    // dp[mask]：mask 裡的節目剛好排滿前 popcount(mask) 個時段的最大總評分
+    // -1 表示這個集合不可能是「前幾個時段」排的節目
+    vector<int> dp(1 << n, -1);
+    dp[0] = 0;
+    for (int mask = 0; mask < full; mask++) {
+        if (dp[mask] < 0) {
+            continue;
+        }
+        int slot = __builtin_popcount(mask);      // 下一個要排的時段
+        for (int v = 0; v < n; v++) {
+            if ((mask >> v) & 1) {
+                continue;                         // v 已經排過了
+            }
+            if ((need[v] & mask) != need[v]) {
+                continue;                         // v 的前置還沒全部排好
+            }
+            int next = mask | (1 << v);
+            dp[next] = max(dp[next], dp[mask] + a[v][slot]);
+        }
+    }
+    cout << dp[full] << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 2 \\
+3 3 8 7 \\
+5 0 0 4 \\
+7 4 3 9 \\
+5 7 5 5 \\
+1 2 \\
+4 3 \\
+}{
+21 \\
+}
+
+\begin{itemize}
+\item 節目和時段在程式裡都從 $0$ 編號，讀限制時減 $1$。 \texttt{a[v][slot]}
+的 \texttt{slot} 就是 \texttt{mask} 裡有幾個節目，不用另外記現在排到第幾個
+時段。
+\item 外層只跑到 \texttt{full - 1}：全集已經排滿，不用再往前推。
+\item 把兩行 \texttt{need} 的檢查拿掉，就是第~\ref{sec:bm-set}~節關主問題的
+程式。
+\item 總評分最多 $16 \times 10^6$，\texttt{int} 裝得下。
+\end{itemize}
+
+\textbf{複雜度}
+
+$2^n$ 個狀態，每個試 $n$ 個節目，$n = 16$ 時約 $10^6$ 次。 表格是 $2^{16}$
+個 \texttt{int}，$256$ KB。 最大的測試資料在本書測試的環境下約 $0.01$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{排不出來的集合記成 $0$}：把 \texttt{dp} 一開始全設成 \texttt{0}，
+範例的輸入印出 \texttt{24}，比正確答案 $21$ 還大。 程式從 $\{2\}$ 這種不合
+法的開頭接下去，得到「節目 $2$ 先上、拿 $0$ 分，再排 $4, 1, 3$」這種違反限制
+的排法。 限制矛盾的輸入（例如 $1$ 比 $2$ 早、$2$ 比 $3$ 早、$3$ 比 $1$ 早）也
+不會印出 $-1$。
+\item \textbf{限制的方向存反}：寫成 \texttt{need[u - 1] |= 1 << (v - 1)}，等
+於要求 $2$ 比 $1$ 早、$3$ 比 $4$ 早，範例的輸入印出 \texttt{22}。
+\item \textbf{子集合的檢查少了括號}：寫成 \texttt{need[v] \& mask != need[v]}。
+\texttt{!=} 比 \texttt{\&} 先算，這行其實是
+\texttt{need[v] \& (mask != need[v])}，只剩 \texttt{need[v]} 的最低位有作用。
+範例的輸入印出 \texttt{17}；\texttt{-Wall} 會警告「suggest parentheses」。
+\item \textbf{試 $n!$ 種順序}：$n = 16$ 時跑不完。 先檢查限制有沒有矛盾、再沿
+著合法的前綴搜尋，也沒有比較快：沒有限制時合法的前綴就是全部排列。
+\end{itemize}
+
+\section{旅行推銷員：集合加上最後一站}
+\label{sec:bm-tsp}
+
+週末要從家出發，去郵局、五金行、銀行、藥局各一次，最後回家。 下表是兩地之
+間走路要幾分鐘（兩個方向一樣）。 怎麼排順序，總時間最短？
+
+\begin{center}
+\begin{tabular}{c|ccccc}
+\toprule
+ & 0 家 & 1 郵局 & 2 五金行 & 3 銀行 & 4 藥局 \\
+\midrule
+0 家 & -- & 5 & 9 & 3 & 4 \\
+1 郵局 & 5 & -- & 9 & 4 & 8 \\
+2 五金行 & 9 & 9 & -- & 8 & 9 \\
+3 銀行 & 3 & 4 & 8 & -- & 6 \\
+4 藥局 & 4 & 8 & 9 & 6 & -- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+「每次走到最近的、還沒去過的地方」是很自然的規則：家 $\to$ 銀行（$3$）$\to$
+郵局（$4$）$\to$ 藥局（$8$）$\to$ 五金行（$9$）$\to$ 家（$9$），共 $33$ 分鐘。
+最好的走法是家 $\to 3 \to 1 \to 2 \to 4 \to$ 家，
+$3 + 4 + 9 + 9 + 4 = 29$ 分鐘。 五金行離每個地方都遠，最近鄰的規則把它拖到最
+後，結果去程、回程都付了遠的代價。
+
+\textbf{只記集合不夠。} 試著照上一節的方法，用「去過哪些地方」當狀態。 下一
+段路要花多少時間，取決於\textbf{現在在哪裡}，集合 $\{1, 3\}$ 說不出人在郵局還
+是在銀行。 所以狀態要再加一個數：
+
+\begin{center}
+\fbox{\parbox{0.86\linewidth}{\centering
+$\mathrm{dp}(S, i)$：從家出發、去過的地方剛好是 $S$、現在停在 $i$（$i \in S$）時，
+已經走的最短時間。}}
+\end{center}
+
+為什麼這樣就夠了？ 從 $(S, i)$ 之後還要去 $S$ 以外的每個地方再回家，這段路
+怎麼走、要多久，只和「人在 $i$」「還剩哪些地方」有關，和前面怎麼走到 $i$ 無關。
+所以走進同一個 $(S, i)$ 的各條路線，只要留下最短的。 例如下圖兩條路線都去過
+$\{1, 2, 3\}$、停在五金行：
+
+\begin{center}
+\begin{tikzpicture}[x=1.45cm, y=1cm,
+  pl/.style={draw=black!55, circle, minimum size=7mm, inner sep=0pt, font=\small}]
+\node[pl] (a0) at (0,0.6) {家};
+\node[pl] (a1) at (1,0.6) {1};
+\node[pl] (a3) at (2,0.6) {3};
+\node[pl] (a2) at (3,0.6) {2};
+\draw[diagarrow] (a0) -- node[above, font=\scriptsize] {5} (a1);
+\draw[diagarrow] (a1) -- node[above, font=\scriptsize] {4} (a3);
+\draw[diagarrow] (a3) -- node[above, font=\scriptsize] {8} (a2);
+\node[font=\small, right] at (3.4,0.6) {共 $17$};
+\node[pl] (b0) at (0,-0.6) {家};
+\node[pl] (b3) at (1,-0.6) {3};
+\node[pl] (b1) at (2,-0.6) {1};
+\node[pl, draw=memStroke, thick, fill=memFill] (b2) at (3,-0.6) {2};
+\draw[diagarrow] (b0) -- node[above, font=\scriptsize] {3} (b3);
+\draw[diagarrow] (b3) -- node[above, font=\scriptsize] {4} (b1);
+\draw[diagarrow] (b1) -- node[above, font=\scriptsize] {9} (b2);
+\node[font=\small, right] at (3.4,-0.6) {共 $16$};
+\node[draw=memStroke, thick, fill=memFill, rounded corners=2pt, font=\small, align=left]
+  at (6.3,0) {狀態 $(\{1, 2, 3\}, 2)$\\只留 $16$};
+\end{tikzpicture}
+\diagcaption{兩條路線走進同一個狀態。 之後去藥局再回家的路完全相同，所以 $17$ 那
+條不可能比 $16$ 那條好。}
+\label{fig:bm-merge}
+\end{center}
+
+轉移是「從 $i$ 走到一個還沒去過的 $j$」：
+\[
+\mathrm{dp}(S \cup \{j\}, j) \leftarrow \mathrm{dp}(S, i) + d_{i,j}, \qquad j \notin S.
+\]
+初始值是從家直接走到第一站：$\mathrm{dp}(\{i\}, i) = d_{0,i}$。 每個地方都
+去過之後還要回家，答案是
+\[
+\min_{i} \bigl(\mathrm{dp}(\text{全集}, i) + d_{i,0}\bigr).
+\]
+家不放進集合裡：它是固定的起點，集合只記 $n$ 個要去的地方。 計算順序和上一節
+一樣，$S \cup \{j\}$ 比 $S$ 大，\texttt{mask} 由小到大就對。 這個做法叫
+\textbf{Held–Karp 演算法}，1962 年提出。 旅行推銷員問題到現在都沒有人找到多
+項式時間的解法，$2^n \cdot n^2$ 已經是實用上很好的精確解。
+
+\subsection{填表}
+\label{sec:bm-tsp-table}
+
+把四個地方的每個狀態都算出來（橫排是停在哪裡，「--」表示 $i$ 不在 $S$ 裡）：
+
+\begin{center}
+\begin{tabular}{cc|cccc}
+\toprule
+$S$ & \texttt{mask} & $i = 1$ & $i = 2$ & $i = 3$ & $i = 4$ \\
+\midrule
+$\{1\}$ & \texttt{0001} & 5 & -- & -- & -- \\
+$\{2\}$ & \texttt{0010} & -- & 9 & -- & -- \\
+$\{3\}$ & \texttt{0100} & -- & -- & 3 & -- \\
+$\{4\}$ & \texttt{1000} & -- & -- & -- & 4 \\
+\midrule
+$\{1, 2\}$ & \texttt{0011} & 18 & 14 & -- & -- \\
+$\{1, 3\}$ & \texttt{0101} & 7 & -- & 9 & -- \\
+$\{2, 3\}$ & \texttt{0110} & -- & 11 & 17 & -- \\
+$\{1, 4\}$ & \texttt{1001} & 12 & -- & -- & 13 \\
+$\{2, 4\}$ & \texttt{1010} & -- & 13 & -- & 18 \\
+$\{3, 4\}$ & \texttt{1100} & -- & -- & 10 & 9 \\
+\midrule
+$\{1, 2, 3\}$ & \texttt{0111} & 20 & \textbf{16} & 22 & -- \\
+$\{1, 2, 4\}$ & \texttt{1011} & 22 & 21 & -- & 23 \\
+$\{1, 3, 4\}$ & \texttt{1101} & 14 & -- & 16 & 15 \\
+$\{2, 3, 4\}$ & \texttt{1110} & -- & 18 & 21 & 20 \\
+\midrule
+$\{1, 2, 3, 4\}$ & \texttt{1111} & 25 & 23 & 26 & 25 \\
+加上回家 & & 30 & 32 & \textbf{29} & \textbf{29} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+地點 $i$ 對應第 $i - 1$ 位，\texttt{mask} 照習慣由右往左寫。 粗體的
+$\mathrm{dp}(\{1, 2, 3\}, 2) = 16$ 就是圖~\ref{fig:bm-merge} 的那個狀態。 最
+後一列的 $29$ 出現兩次：停在銀行的那條是家 $\to 4 \to 2 \to 1 \to 3 \to$ 家，
+停在藥局的是它倒過來走。 距離是對稱的，同一個圈正反走都一樣長。
+
+\subsection{把路線找回來}
+\label{sec:bm-route}
+
+表格只告訴我們最短是 $29$。 要知道怎麼走，可以像第~1~章 1.1 節「找出選了哪幾
+件」那樣從答案往回推；這裡更簡單的做法是在填表時就記下來：每次更新 $\mathrm{dp}(S \cup \{j\}, j)$ 時，記下是從哪一站來的，存在
+$\mathit{from}(S \cup \{j\}, j)$。 最後從答案的那個狀態開始，沿著
+$\mathit{from}$ 往回走：知道現在在 $j$、前一站是 $i$，就把 $j$ 從集合拿掉，
+回到狀態 $(S, i)$，一直走到集合只剩一個地方為止。 這樣得到的是倒過來的路線，
+最後反轉一次。
+
+\begin{example}[label=ex:bm-route]{cpp}{(route.cpp) 從家出發走遍每個地方再回家}
+#include <algorithm>
+#include <climits>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n;                                        // 地點 0 是家，1 到 n 是要去的地方
+    cin >> n;
+    vector<vector<int>> d(n + 1, vector<int>(n + 1));
+    for (auto &row : d) {
+        for (int &x : row) {
+            cin >> x;
+        }
+    }
+    const int INF = INT_MAX / 2;
+    int full = (1 << n) - 1;
+    // 第 i 位代表地點 i + 1
+    // dp[mask][last]：從家出發、去過的地方剛好是 mask、停在 last 的最短路程
+    // from[mask][last]：達到這個最短路程時，前一站是哪裡（-1 表示前一站是家）
+    vector<vector<int>> dp(1 << n, vector<int>(n, INF));
+    vector<vector<int>> from(1 << n, vector<int>(n, -1));
+    for (int i = 0; i < n; i++) {
+        dp[1 << i][i] = d[0][i + 1];
+    }
+    for (int mask = 1; mask <= full; mask++) {
+        for (int last = 0; last < n; last++) {
+            if (dp[mask][last] == INF) {
+                continue;
+            }
+            for (int j = 0; j < n; j++) {
+                if ((mask >> j) & 1) {
+                    continue;
+                }
+                int next = mask | (1 << j);
+                int cost = dp[mask][last] + d[last + 1][j + 1];
+                if (cost < dp[next][j]) {
+                    dp[next][j] = cost;
+                    from[next][j] = last;
+                }
+            }
+        }
+    }
+    int best = INF, end = -1;
+    for (int last = 0; last < n; last++) {        // 最後一站回家
+        int total = dp[full][last] + d[last + 1][0];
+        if (total < best) {
+            best = total;
+            end = last;
+        }
+    }
+    // 從終點沿著 from 往回走，得到倒過來的路線
+    vector<int> route;
+    int mask = full, cur = end;
+    while (cur != -1) {
+        route.push_back(cur + 1);
+        int prev = from[mask][cur];
+        mask ^= 1 << cur;                         // 拿掉 cur，回到前一個狀態
+        cur = prev;
+    }
+    reverse(route.begin(), route.end());
+    cout << best << '\n';
+    cout << 0;
+    for (int p : route) {
+        cout << ' ' << p;
+    }
+    cout << " 0\n";
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 \\
+0 5 9 3 4 \\
+5 0 9 4 8 \\
+9 9 0 8 9 \\
+3 4 8 0 6 \\
+4 8 9 6 0 \\
+}{
+29 \\
+0 4 2 1 3 0 \\
+}
+
+\begin{itemize}
+\item 地點有 $n + 1$ 個，遮罩只有 $n$ 位：第 $i$ 位代表地點 $i + 1$。 讀表時
+\texttt{d[last + 1][j + 1]} 的 \texttt{+ 1} 都是在換回地點編號。
+\item \texttt{INF} 用 \texttt{INT\_MAX / 2}，兩個 \texttt{INF} 相加也不會溢
+位。 程式在 \texttt{dp[mask][last] == INF} 時就跳過，不會拿 \texttt{INF} 去
+加，但留一點空間比較保險。
+\item \texttt{from} 是 $-1$ 的只有第一站（前一站是家），往回走到這裡就停。
+\item 印出的是停在銀行那一條。 把找終點那個迴圈的 \texttt{total < best} 改成
+\texttt{<=}，會印出停在藥局的 \texttt{0 3 1 2 4 0}。 題目如果要求特定的一條
+（例如字典序最小），平手時怎麼選要另外想。
+\end{itemize}
+
+\subsection{路徑和迴路}
+\label{sec:bm-path}
+
+經過每個點恰好一次的路線，叫\textbf{漢米爾頓路徑}（Hamiltonian path）；最後
+再回到起點的，叫\textbf{漢米爾頓迴路}（Hamiltonian cycle）。 旅行推銷員問題找
+的是最短的漢米爾頓迴路。 題目常常只改起點、終點的規定，表格不用變，改的是初
+始值和答案：
+
+\begin{center}
+\begin{tabular}{p{0.32\linewidth}p{0.3\linewidth}p{0.28\linewidth}}
+\toprule
+規定 & 初始值 & 答案 \\
+\midrule
+從家出發，最後回家 & $\mathrm{dp}(\{i\}, i) = d_{0,i}$ & $\min_i \mathrm{dp}(\text{全集}, i) + d_{i,0}$ \\
+從家出發，停在哪裡都可以 & 同上 & $\min_i \mathrm{dp}(\text{全集}, i)$ \\
+從 $s$ 出發，停在 $t$ & $\mathrm{dp}(\{s\}, s) = 0$ & $\mathrm{dp}(\text{全集}, t)$ \\
+起點、終點都自己選 & 每個 $i$ 都 $\mathrm{dp}(\{i\}, i) = 0$ & $\min_i \mathrm{dp}(\text{全集}, i)$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+第三列的起點 $s$ 本身在集合裡，因為它和其他點一樣是要經過一次的地方。 只問
+「有沒有」漢米爾頓路徑，把 $\mathrm{dp}$ 換成 \texttt{bool} 就好；不能直接走
+的兩點，轉移時跳過。
+
+\textbf{迴路可以固定起點。} 一個圈從哪一點開始算都是同一個圈，所以要走遍
+$n$ 個點再回到原點時，可以直接規定從第 $0$ 個點出發。 包含第 $0$ 個點的集合
+只有 $2^{n - 1}$ 個，表格可以少一半。
+
+\subsection{表格要多大}
+\label{sec:bm-memory}
+
+$\mathrm{dp}(S, i)$ 有 $2^n \cdot n$ 格。 $n = 20$ 時是 $2^{20} \times 20 \approx 2.1 \times 10^7$
+格，每格一個 \texttt{int}（$4$ 位元組）：
+\[
+2^{20} \times 20 \times 4 = 83{,}886{,}080 \text{ 位元組} = 80 \text{ MB}.
+\]
+這裡的 MB 是 $2^{20}$ 位元組。 換成 \texttt{long long} 要 $160$ MB，再加一張
+$\mathit{from}$ 又多 $80$ MB。 很多題目的記憶體限制是 $256$ MB，甚至
+$64$ MB，這種表格寫下去之前一定要先算。 下表是 $n = 20$ 的旅行推銷員（固定
+從第 $0$ 個點出發）在本書測試的環境下實際用掉的記憶體：
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+表格的寫法 & 記憶體 & 時間 \\
+\midrule
+全域陣列 \texttt{int dp[1 << 20][20]} & $84$ MB & 約 $0.2$ 秒 \\
+\texttt{vector<vector<int>> dp(1 << n, vector<int>(n))} & $123$ MB & 約 $0.2$ 秒 \\
+\texttt{vector<vector<int>> dp(n, vector<int>(1 << n))} & $87$ MB & 約 $0.2$ 秒 \\
+全域陣列 \texttt{long long dp[1 << 20][20]} & $164$ MB & 約 $0.2$ 秒 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+\item 第二種多了將近 $40$ MB：$2^{20}$ 個小 \texttt{vector} 各有自己的管理資料
+和配置的額外空間。 維度對調（第三種）只開 $20$ 個大 \texttt{vector}，幾乎沒有
+額外負擔。 $n \le 16$ 時都只有幾 MB，本章的例題用第二種，順序和
+$\mathrm{dp}(S, i)$ 的寫法相同。
+\item 這麼大的陣列不能宣告在 \texttt{main} 裡面。 函式裡的陣列放在堆疊上，堆
+疊通常只有幾 MB（本書測試的環境是 $8$ MB），\texttt{int dp[1 << 20][20];} 寫
+在 \texttt{main} 裡，程式一執行就當掉（segmentation fault）。 宣告成全域變數，
+或用 \texttt{vector}。
+\item 能固定起點時（上一小節），表格可以只留 $2^{n - 1}$ 個集合，再省一半。
+\end{itemize}
+
+\begin{apcsnote}
+題目會寫出記憶體限制。 寫位元 DP 之前，先算「狀態數 $\times$ 每格位元組數」：
+$2^{16} \times 16$ 個 \texttt{long long} 只要 $8$ MB，$2^{20} \times 20$ 個
+\texttt{int} 就是 $80$ MB。 如果題目把測試資料分成幾個子題，$n \le 8$ 的子題
+可以先用 \texttt{next\_permutation} 試遍所有順序拿下來，這個暴力解之後也能和
+位元 DP 對拍。
+\end{apcsnote}
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{兩層迴圈的順序對調}：把外層改成 \texttt{last}、內層改成
+\texttt{mask}。 範例的輸入印出 \texttt{32}，正確答案是 $29$。 外層
+\texttt{last = 0} 跑完之後，停在地點 $1$ 的狀態就再也不會被拿來往前推；後來才
+從別的地方走到地點 $1$ 的更新，全都沒有繼續傳下去。 往前推的寫法裡，每個狀態
+被拿來推的時候必須已經算完整，所以集合要放在最外層。
+\item \textbf{忘了回家}：答案取 $\min_i \mathrm{dp}(\text{全集}, i)$，範例的輸
+入印出 \texttt{23}，那是「停在哪裡都可以」的答案。 讀題時先確定起點、終點的
+規定，再對照上一小節的表。
+\end{itemize}
+
+\section{例題：越推越重的回收推車}
+\label{sec:ex-bm-cart}
+
+\textbf{題意}（\akiref{the-ever-heavier-recycling-cart}{越推越重的回收推車}）
+
+\begin{itemize}
+\item 環保股長推著自重 $C$ 的回收推車，從回收站（地點 $0$）出發，到 $n$ 個班
+級（地點 $1$ 到 $n$）各收一次回收袋，最後回到回收站。 第 $i$ 班的袋子重
+$w_i$，收了就一直留在車上。
+\item 從地點 $u$ 直接走到 $v$ 的費力值是
+$d_{u,v} \times (C + \text{離開 } u \text{ 時車上袋子的總重})$。 距離對稱，滿
+足三角不等式。
+\item 求總費力值的最小值。 $n \le 16$，$C$、$w_i$、$d_{u,v}$ 都不超過
+$10^4$。
+\end{itemize}
+
+例如 $n = 3$、$C = 2$、袋子重 $3, 1, 2$，距離如下表。 照
+$0 \to 3 \to 1 \to 2 \to 0$ 走：$5 \times 2 + 3 \times (2 + 2) + 2 \times (2 + 5) + 3 \times (2 + 6) = 10 + 12 + 14 + 24 = 60$，
+這是最小的。
+
+\begin{center}
+\begin{tabular}{c|cccc}
+\toprule
+ & 0 & 1 & 2 & 3 \\
+\midrule
+0 & 0 & 4 & 3 & 5 \\
+1 & 4 & 0 & 2 & 3 \\
+2 & 3 & 2 & 0 & 4 \\
+3 & 5 & 3 & 4 & 0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{想法}
+
+最直接的是試 $n!$ 種順序，$16!$ 太多。 幾條直覺的規則都會錯：每次走最近的班
+級（$0 \to 2 \to 1 \to 3 \to 0$）總共 $70$；袋子由輕到重收，把最重的留到最後，
+在題目的範例 2 也不是最好的。 最好的走法常常是趁車子還輕時先走遠路，但「遠」
+和「重」要一起權衡，沒有簡單的規則。
+
+\textbf{這題看起來不像上一節。} 一段路的費力值會乘上當時的重量，而重量看起來
+和前面怎麼走有關。 第一個反應可能是在狀態裡多記一維「目前的重量」，可是重量
+可以到 $16 \times 10^4$，表格開不下。
+
+\textbf{重量只看集合。} 停下來想一想：走到狀態 $(S, i)$ 時，車上有哪些袋子？
+答案是 $S$ 裡每一班的袋子，一個不多、一個不少，和收的順序無關。 所以重量是
+$S$ 的函數，不用另外記：
+\[
+W(S) = \sum_{j \in S} w_j .
+\]
+從 $(S, i)$ 走到 $j$ 的費力值是 $d_{i,j} \times (C + W(S))$，只用到 $S$、$i$、$j$，
+仍然是上一節的 $\mathrm{dp}(S, i)$：
+
+\begin{center}
+\fbox{\parbox{0.86\linewidth}{\centering
+$\mathrm{dp}(S, i)$：收過的班級剛好是 $S$、人停在班級 $i$ 時，到目前為止的最小
+總費力值。}}
+\end{center}
+
+\[
+\mathrm{dp}(S \cup \{j\}, j) \leftarrow \mathrm{dp}(S, i) + d_{i,j} \times \bigl(C + W(S)\bigr), \qquad j \notin S.
+\]
+
+乘的是 $W(S)$，不是 $W(S \cup \{j\})$：費力值看的是\textbf{離開} $i$ 時的重
+量，$j$ 的袋子要到了 $j$ 才放上車。 第一段車上是空的，
+$\mathrm{dp}(\{i\}, i) = d_{0,i} \times C$；最後回程時所有袋子都在車上，答案
+是 $\min_i \bigl(\mathrm{dp}(\text{全集}, i) + d_{i,0} \times (C + W(\text{全集}))\bigr)$。
+
+\textbf{一次算好每個集合的重量。} $W(S)$ 每次用迴圈加，會多一個 $n$ 倍。 可以
+先把 $2^n$ 個集合的重量都算好：拿掉 $S$ 最低的那個元素，剩下的集合
+\texttt{S \& (S - 1)} 比 $S$ 小、已經算好，再加上那個元素的重量就是 $W(S)$。
+最低的元素是第幾個，用 \texttt{\_\_builtin\_ctz(S)}。 這種「從比較小的集合遞推」
+的預先計算，位元 DP 很常用。
+
+同樣的模型也出現在別的地方：貨車沿路裝貨、油耗隨載重增加；無人機逐點投遞包
+裹、耗電和剩下的包裹重量有關。 轉移的成本只取決於「已經做過哪些事」時，就還
+是 $\mathrm{dp}(S, i)$；成本和做過的順序有關時就不夠了，本章練習第~6~題會看
+這種情況。
+
+\textbf{程式}
+
+\begin{example}[label=ex:bm-cart]{cpp}{(cart.cpp) 越推越重的回收推車}
+#include <algorithm>
+#include <climits>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n;
+    long long c;
+    cin >> n >> c;
+    vector<long long> w(n);
+    for (long long &x : w) {
+        cin >> x;
+    }
+    vector<vector<long long>> d(n + 1, vector<long long>(n + 1));
+    for (auto &row : d) {
+        for (long long &x : row) {
+            cin >> x;
+        }
+    }
+    int full = (1 << n) - 1;
+    // load[mask]：收過 mask 這些班級之後，車上回收袋的總重
+    vector<long long> load(1 << n, 0);
+    for (int mask = 1; mask <= full; mask++) {
+        int low = __builtin_ctz(mask);                    // 最低的 1 是第幾位
+        load[mask] = load[mask & (mask - 1)] + w[low];
+    }
+    const long long INF = LLONG_MAX / 2;
+    // dp[mask][last]：收過的班級剛好是 mask、人停在班級 last 的最小費力值
+    // 班級在程式裡編號 0 到 n - 1，地點編號是班級編號加 1
+    vector<vector<long long>> dp(1 << n, vector<long long>(n, INF));
+    for (int i = 0; i < n; i++) {
+        dp[1 << i][i] = d[0][i + 1] * c;                  // 第一段車上還沒有袋子
+    }
+    for (int mask = 1; mask <= full; mask++) {
+        long long weight = c + load[mask];                // 離開 last 時車子的重量
+        for (int last = 0; last < n; last++) {
+            if (dp[mask][last] == INF) {
+                continue;
+            }
+            for (int j = 0; j < n; j++) {
+                if ((mask >> j) & 1) {
+                    continue;
+                }
+                long long cost = dp[mask][last] + d[last + 1][j + 1] * weight;
+                long long &target = dp[mask | (1 << j)][j];
+                target = min(target, cost);
+            }
+        }
+    }
+    long long ans = INF;
+    for (int last = 0; last < n; last++) {                // 最後回到回收站，車上全滿
+        ans = min(ans, dp[full][last] + d[last + 1][0] * (c + load[full]));
+    }
+    cout << ans << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 2 \\
+3 1 2 \\
+0 4 3 5 \\
+4 0 2 3 \\
+3 2 0 4 \\
+5 3 4 0 \\
+}{
+60 \\
+}
+
+\begin{itemize}
+\item 車子的重量 \texttt{weight} 只和 \texttt{mask} 有關，放在 \texttt{last} 那
+層迴圈外面算一次。
+\item \texttt{long long \&target} 是參考，讓 \texttt{dp[mask | (1 << j)][j]}
+不用寫兩次。 如果你沒讀過銜接書，只要知道對 \texttt{target} 賦值就是對那一格
+賦值即可。
+\item 數值範圍：單段最大約 $10^4 \times (10^4 + 16 \times 10^4) = 1.7 \times 10^9$，
+已經超過 \texttt{int}；整趟最大約 $1.5 \times 10^{10}$。 距離和重量都存成
+\texttt{long long}，乘法也在 \texttt{long long} 裡算。
+\end{itemize}
+
+\textbf{複雜度}
+
+$2^n \cdot n$ 個狀態，每個試 $n$ 個下一站，$O(2^n \cdot n^2)$，$n = 16$ 時約
+$1.7 \times 10^7$ 次。 表格 $2^{16} \times 16$ 個 \texttt{long long} 是
+$8$ MB。 最大的測試資料在本書測試的環境下約 $0.02$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{回程只乘 $C$}：最後一段寫成 \texttt{d[last + 1][0] * c}，範例的
+輸入印出 \texttt{40}。 回程是車子最重的一段，不能漏掉袋子的重量。
+\item \textbf{把下一班的袋子也算進去}：乘上 \texttt{c + load[mask | (1 << j)]}，
+範例的輸入印出 \texttt{71}。 費力值看的是離開時的重量。
+\item \textbf{用 \texttt{int}}：$n = 16$、所有數值都是 $10^4$ 時，正確答案是
+\texttt{15300000000}。 把程式裡的 \texttt{long long} 全改成 \texttt{int}，在
+本書測試的環境下印出 \texttt{-1521225473}。
+\item \textbf{以為正反走一樣}：距離對稱，但重量讓方向有差。 範例的
+$0 \to 3 \to 1 \to 2 \to 0$ 是 $60$，倒過來的 $0 \to 2 \to 1 \to 3 \to 0$ 是
+$70$。 不能只算一個方向。
+\end{itemize}
+
+\section{子集合的子集合}
+\label{sec:bm-submask}
+
+前面兩題的轉移都是「多加一個元素」。 有些題目一次要決定一整組：把人分成好幾
+組、把工作分給幾台機器，轉移是「從剩下的人裡挑出一組」，要列舉某個集合的所有
+子集合。
+
+\subsection{列舉一個集合的子集合}
+
+最直接的寫法是從 $0$ 數到 $2^n - 1$，再用 \texttt{(sub \& mask) == sub} 挑出
+是 \texttt{mask} 子集合的。 \texttt{mask} 只有三個 $1$ 時，$2^n$ 個數裡只有
+$8$ 個用得到，大部分時間都浪費了。 下面這個迴圈只走 \texttt{mask} 的子集合，
+由大到小，一個不漏：
+
+\begin{code}{cpp}{列舉 mask 的所有子集合（含空集合）}
+for (int sub = mask; ; sub = (sub - 1) & mask) {
+    // 處理 sub
+    if (sub == 0) {
+        break;
+    }
+}
+\end{code}
+
+以 \texttt{mask} $=$ \texttt{10110} 為例：
+
+\begin{center}
+\begin{tabular}{ccc}
+\toprule
+\texttt{sub} & \texttt{sub - 1} & \texttt{(sub - 1) \& mask} \\
+\midrule
+\texttt{10110} & \texttt{10101} & \texttt{10100} \\
+\texttt{10100} & \texttt{10011} & \texttt{10010} \\
+\texttt{10010} & \texttt{10001} & \texttt{10000} \\
+\texttt{10000} & \texttt{01111} & \texttt{00110} \\
+\texttt{00110} & \texttt{00101} & \texttt{00100} \\
+\texttt{00100} & \texttt{00011} & \texttt{00010} \\
+\texttt{00010} & \texttt{00001} & \texttt{00000} \\
+\texttt{00000} & & 結束 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+只看 \texttt{mask} 的三個 $1$（第 $1$、$2$、$4$ 位），\texttt{sub} 在這三位
+上依序是 \texttt{111}、\texttt{110}、\texttt{101}、\texttt{100}、\texttt{011}、
+\texttt{010}、\texttt{001}、\texttt{000}，就是一個三位的二進位數由 $7$ 往下數到 $0$。 減 $1$ 是在做「往下數一個」；和 \texttt{mask} 做 AND，把借位時跑
+到 \texttt{mask} 以外的 $1$ 清掉，等於跳過不在 \texttt{mask} 裡的位。 所以
+$k$ 個 $1$ 的 \texttt{mask} 剛好走 $2^k$ 次。
+
+空集合要不要處理，看題目。 迴圈寫在 \texttt{if (sub == 0) break;} 之前的部分
+會處理到空集合。 兩種常見的寫錯法：寫成 \texttt{for (sub = mask; sub > 0; ...)}
+會漏掉空集合；寫成 \texttt{sub >= 0} 則永遠停不下來，因為
+\texttt{(0 - 1) \& mask} 又回到 \texttt{mask}。
+
+\subsection{\texorpdfstring{為什麼是 $3^n$}{為什麼是 3ⁿ}}
+\label{sec:bm-3n}
+
+如果每個 \texttt{mask} 都把它的子集合列一遍，總共要走幾次？ 換個方式數：每一
+對「\texttt{mask} 和它的一個子集合 \texttt{sub}」，每個元素都剛好是下面三種
+之一：
+
+\begin{itemize}
+\item 不在 \texttt{mask} 裡；
+\item 在 \texttt{mask} 裡，但不在 \texttt{sub} 裡；
+\item 在 \texttt{sub} 裡（當然也在 \texttt{mask} 裡）。
+\end{itemize}
+
+$n$ 個元素各自三選一，共 $3^n$ 對，所以總次數是 $3^n$。 $n = 16$ 時是
+$4.3 \times 10^7$，來得及；$n = 20$ 時是 $3.5 \times 10^9$，就太慢了。 如果每
+個 \texttt{mask} 都從 $0$ 數到 $2^n - 1$ 再挑子集合，總共是
+$2^n \times 2^n = 4^n$，$n = 16$ 時 $4.3 \times 10^9$，差了一百倍。
+
+\subsection{例題：湊齊器材的專題小組}
+\label{sec:ex-bm-kit}
+
+\textbf{題意}（\akiref{teams-with-every-piece-of-gear}{湊齊器材的專題小組}）
+
+\begin{itemize}
+\item 攝影社 $n$ 位同學要組外拍小組，外拍需要 $k$ 種器材。 每位同學帶哪些器
+材，用長度 $k$ 的 01 字串表示。
+\item 一個小組至少一人，組內所有人的器材合起來每一種都至少有一件，才算合格。
+每位同學最多加入一組，也可以不加入。
+\item 最多能組成幾個合格的小組？ $n \le 16$，$k \le 10$。
+\end{itemize}
+
+例如 $n = 4$、$k = 3$，四位同學的器材是 \texttt{110}、\texttt{001}、
+\texttt{101}、\texttt{010}。 第 $0$、$1$ 位合起來是 \texttt{111}，第 $2$、$3$
+位合起來也是 \texttt{111}，可以組成兩組。
+
+\textbf{想法}
+
+\textbf{先試貪心。} 「每次挑人數最少的合格小組」聽起來省人，但會出錯。 看
+$k = 5$、六位同學 \texttt{11001}、\texttt{00111}、\texttt{10000}、
+\texttt{01000}、\texttt{00100}、\texttt{00010}：兩個人就湊齊的只有第 $0$、
+$1$ 位，貪心先讓他們一組；可是第 $5$ 種器材只有這兩個人有，剩下的四個人湊不
+出第二組，只有 $1$ 組。 讓第 $0$ 位和第 $4$、$5$ 位一組，第 $1$ 位和第
+$2$、$3$ 位一組，就有 $2$ 組。 兩個「各自都很有用」的人被綁在同一組，浪費了。
+
+暴力解是替每個人決定去哪一組或不參加，$n = 16$ 時分法超過 $8 \times 10^{10}$
+種，只能在很小的 $n$ 對拍。
+
+\textbf{狀態是「還能用的人」。} 一群人能組幾組，只和是哪些人有關。 令
+
+\begin{center}
+\fbox{\parbox{0.86\linewidth}{\centering
+$\mathrm{dp}(S)$：只用集合 $S$ 裡的同學，最多能組成幾個合格的小組。}}
+\end{center}
+
+\textbf{固定編號最小的那個人。} 如果寫成「從 $S$ 裡挑任意一組合格的 $G$，
+$\mathrm{dp}(S) = \max \mathrm{dp}(S \setminus G) + 1$」，同一種分法會因為「先
+挑哪一組」被算很多次，也沒有處理「有人不參加」。 好的寫法是只看 $S$ 裡編號最
+小的那位同學 $p$，他只有兩種情況：
+
+\begin{itemize}
+\item 他不參加：$\mathrm{dp}(S \setminus \{p\})$。
+\item 他在某個合格小組 $G$ 裡，$p \in G \subseteq S$：
+$\mathrm{dp}(S \setminus G) + 1$。
+\end{itemize}
+
+任何一種分法裡，$p$ 不是沒參加，就是剛好在一組，所以這兩種情況不重複也不遺
+漏。 $G$ 是 $p$ 再加上 $S \setminus \{p\}$ 的一個子集合（可以是空的，表示他一
+個人就湊齊了），用上一小節的迴圈列舉。 $S \setminus G$ 比 $S$ 小，所以
+\texttt{mask} 由小到大算。
+
+\textbf{一次算好每個集合合不合格。} 和回收推車的重量一樣，集合 $S$ 的器材聯
+集可以從 $S \setminus \{\text{最低的人}\}$ 遞推：$\mathit{cover}(S) = \mathit{cover}(\texttt{S \& (S - 1)})$
+OR 最低那個人的器材，$O(2^n)$ 就把每個集合的聯集算好。
+
+同樣的模型也出現在別的地方：把一群工程師分成值班小組，每組都要涵蓋所有系統
+的專長；把一批零件分裝成好幾套，每套都要配齊。 看到「把 $n$ 個東西分成好幾
+組，每組要滿足某個條件，$n$ 很小」，就列舉子集合的子集合。
+
+\textbf{程式}
+
+\begin{example}[label=ex:bm-kit]{cpp}{(kit.cpp) 湊齊器材的專題小組}
+#include <algorithm>
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n, k;
+    cin >> n >> k;
+    vector<int> gear(n, 0);                     // gear[i]：第 i 位同學的器材，k 位元
+    for (int i = 0; i < n; i++) {
+        string s;
+        cin >> s;
+        for (int j = 0; j < k; j++) {
+            if (s[j] == '1') {
+                gear[i] |= 1 << j;
+            }
+        }
+    }
+    int everyone = (1 << n) - 1, allGear = (1 << k) - 1;
+    // cover[S]：同學集合 S 合起來有哪些器材
+    vector<int> cover(1 << n, 0);
+    for (int S = 1; S <= everyone; S++) {
+        cover[S] = cover[S & (S - 1)] | gear[__builtin_ctz(S)];
+    }
+    // dp[S]：只用 S 裡的同學，最多能組成幾個合格的小組
+    vector<int> dp(1 << n, 0);
+    for (int S = 1; S <= everyone; S++) {
+        int p = S & -S;                         // 編號最小的同學（只有他那一位是 1）
+        int others = S ^ p;
+        int best = dp[others];                  // 他不參加
+        // 他所在的小組 = p 加上 others 的子集合 sub
+        for (int sub = others; ; sub = (sub - 1) & others) {
+            if (cover[sub | p] == allGear) {
+                best = max(best, dp[others ^ sub] + 1);
+            }
+            if (sub == 0) {
+                break;
+            }
+        }
+        dp[S] = best;
+    }
+    cout << dp[everyone] << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+6 5 \\
+11001 \\
+00111 \\
+10000 \\
+01000 \\
+00100 \\
+00010 \\
+}{
+2 \\
+}
+
+\begin{itemize}
+\item \texttt{p} 是一個只有一位是 $1$ 的遮罩（代表那位同學），不是編號；所以
+小組寫成 \texttt{sub | p}，剩下的人是 \texttt{others \^{} sub}。
+\item \texttt{sub} 從 \texttt{others} 本身開始，最後一個是 $0$，表示他一個人
+自成一組。 這一輪要先處理再跳出。
+\end{itemize}
+
+\textbf{複雜度}
+
+固定最低位之後，每個 $S$ 只列舉 $S \setminus \{p\}$ 的子集合，次數是
+$2^{|S| - 1}$。 全部加起來是 $(3^n - 1)/2$，$n = 16$ 時約
+$2.2 \times 10^7$，比不固定時少一半。 最大的測試資料在本書測試的環境下約
+$0.02$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{漏掉空的 \texttt{sub}}：迴圈寫成
+\texttt{for (int sub = others; sub > 0; ...)}。 輸入 \texttt{2 2}、
+\texttt{11}、\texttt{11} 印出 \texttt{1}，正確答案是 $2$：每個人自己就湊齊
+了，但「一個人一組」從來沒有被試過。
+\item \textbf{忘了可以不參加}：把 \texttt{best} 的起點寫成一個很小的負數，
+只考慮 $p$ 加入某一組。 只要有人湊得出一組，多的人塞進那組也還合格，答案不會
+錯；但一組都湊不出來時，例如輸入 \texttt{2 2}、\texttt{10}、\texttt{10}，就
+印出那個負數，正確答案是 $0$。
+\item \textbf{一次加一個人}：仿照前兩節，狀態記「已經組好幾組、目前這一組有哪
+些器材」，每次加一個人。 兩個未完成的小組，例如一組有相機和腳架、另一組只有
+麥克風，沒辦法比較哪個比較好，只留一個就可能丟掉後來需要的那個。 這種做法在
+隨機的輸入上常常碰巧答對，所以更要小心。
+\end{itemize}
+
+\section{一列一列鋪地磚}
+\label{sec:bm-tiling}
+
+前面的遮罩記的都是「$n$ 個東西裡用過哪些」。 這一節的遮罩記的是一列格子的
+樣子。
+
+\textbf{題目。} 一塊 $h$ 列、$w$ 行的地板，有些格子是柱子，其餘的要用
+$1 \times 2$ 的地磚（可以直放或橫放）剛好鋪滿，地磚不能蓋到柱子。 共有幾種鋪
+法？ 答案很大時取除以 $10^9 + 7$ 的餘數。 $w \le 10$，$h \le 1000$。
+
+例如 $h = 4$、$w = 3$，左上角和右下角是柱子，共有 $5$ 種鋪法。
+
+\textbf{一列的狀態。} 從上往下一列一列鋪。 第 $r$ 列鋪好之後，下面的列只受到
+一件事影響：第 $r$ 列有哪些直磚伸進了第 $r + 1$ 列。 那些格子已經被蓋住，第
+$r + 1$ 列只能鋪剩下的格子；第 $r$ 列以上其他的事情，下面完全看不到。 所以狀
+態是「第 $r$ 列的哪幾格已經被上一列的直磚蓋住」，用一個 $w$ 位的遮罩存。
+
+\begin{center}
+\begin{tikzpicture}[x=0.6cm, y=0.6cm]
+\begin{scope}
+\foreach \r in {0,...,3} { \foreach \c in {0,...,2} {
+  \draw[black!35] (\c,-\r) rectangle (\c+1,-\r-1); } }
+\fill[bmpillar] (0,0) rectangle (1,-1);
+\fill[bmpillar] (2,-3) rectangle (3,-4);
+\draw[bmtile] (1.1,-0.1) rectangle (2.9,-0.9);
+\draw[bmtile] (1.1,-1.1) rectangle (2.9,-1.9);
+\draw[bmtile, draw=memStroke, fill=memFill] (0.1,-1.1) rectangle (0.9,-2.9);
+\fill[black!8] (1,-2) rectangle (3,-3);
+\foreach \r in {0,...,3} {\node[idxlbl, left] at (-0.1,-\r-0.5) {\r};}
+\node[font=\small] at (1.5,-4.7) {(a)};
+\end{scope}
+\begin{scope}[xshift=3.6cm]
+\foreach \r in {0,...,3} { \foreach \c in {0,...,2} {
+  \draw[black!35] (\c,-\r) rectangle (\c+1,-\r-1); } }
+\fill[bmpillar] (0,0) rectangle (1,-1);
+\fill[bmpillar] (2,-3) rectangle (3,-4);
+\draw[bmtile] (1.1,-0.1) rectangle (1.9,-1.9);
+\draw[bmtile] (2.1,-0.1) rectangle (2.9,-1.9);
+\draw[bmtile, draw=memStroke, fill=memFill] (0.1,-1.1) rectangle (0.9,-2.9);
+\fill[black!8] (1,-2) rectangle (3,-3);
+\node[font=\small] at (1.5,-4.7) {(b)};
+\end{scope}
+\node[font=\small, right, align=left] at (10.2,-2)
+  {(a)、(b) 鋪好第 $0$、$1$ 列的方式不同，\\
+   但都只有一塊直磚伸進第 $2$ 列的第 $0$ 格（橘色）。\\
+   第 $2$ 列以下怎麼鋪，兩種情況完全一樣，\\
+   所以合在同一個狀態「第 $2$ 列被蓋住的是 $\{0\}$」，\\
+   方法數是 $2$。 灰色是第 $2$ 列還要鋪的格子。};
+\end{tikzpicture}
+\diagcaption{$4 \times 3$ 的地板，黑色是柱子。 兩種不同的上半部，留給下半部的
+是同一個樣子。}
+\label{fig:bm-profile}
+\end{center}
+
+\begin{center}
+\fbox{\parbox{0.86\linewidth}{\centering
+$f_r(M)$：第 $0$ 到第 $r - 1$ 列都鋪好，而且伸進第 $r$ 列的直磚剛好蓋住 $M$
+這幾格的方法數。}}
+\end{center}
+
+一開始沒有東西伸進第 $0$ 列，$f_0(\varnothing) = 1$。 鋪完最後一列之後不能有
+磚伸出地板，答案是 $f_h(\varnothing)$。
+
+\textbf{一列怎麼轉移。} 已知第 $r$ 列被蓋住的格子 $M$（再加上這一列的柱子），
+從左到右一格一格決定還空著的格子：
+
+\begin{itemize}
+\item 已經被蓋住或是柱子：跳過。
+\item 放一塊直磚往下：這一格蓋住了，下一列的同一格也被蓋住，記進下一列的遮罩。
+\item 放一塊橫磚：右邊那格也要空著，兩格一起蓋住。
+\end{itemize}
+
+走到這一列的最右邊，得到下一列的遮罩 $M'$，就把 $f_r(M)$ 加到
+$f_{r+1}(M')$。 如果上一列伸下來的直磚剛好戳到這一列的柱子（$M$ 和柱子有交
+集），這個狀態不合法，直接跳過。 「一格一格決定」用遞迴寫最直接：
+
+\begin{example}[label=ex:bm-tiling]{cpp}{(tiling.cpp) 有柱子的地板鋪地磚}
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+const long long MOD = 1000000007;
+int w;
+vector<long long> nxt;   // 下一列各種「被伸進來的格子」的鋪法數
+
+// 這一列處理到第 c 格；filled：這一列已經被蓋住（或是柱子）的格子
+// out：往下一列伸出去的直磚蓋住了下一列的哪些格子；ways：到這裡的鋪法數
+void go(int c, int filled, int out, long long ways) {
+    if (c == w) {
+        nxt[out] = (nxt[out] + ways) % MOD;
+        return;
+    }
+    if ((filled >> c) & 1) {                      // 這格已經有東西，換下一格
+        go(c + 1, filled, out, ways);
+        return;
+    }
+    go(c + 1, filled, out | (1 << c), ways);      // 放一塊直磚，蓋住下一列的第 c 格
+    if (c + 1 < w && !((filled >> (c + 1)) & 1)) {
+        go(c + 2, filled, out, ways);             // 放一塊橫磚，蓋住第 c、c + 1 格
+    }
+}
+
+int main() {
+    int h;
+    cin >> h >> w;
+    vector<int> pillar(h, 0);                     // pillar[r]：第 r 列哪幾格是柱子
+    for (int r = 0; r < h; r++) {
+        string s;
+        cin >> s;
+        for (int c = 0; c < w; c++) {
+            if (s[c] == '#') {
+                pillar[r] |= 1 << c;
+            }
+        }
+    }
+    // cur[mask]：前面幾列都鋪好，而且上一列的直磚剛好伸進這一列 mask 這幾格的鋪法數
+    vector<long long> cur(1 << w, 0);
+    cur[0] = 1;                                   // 第 0 列上面沒有東西伸下來
+    for (int r = 0; r < h; r++) {
+        nxt.assign(1 << w, 0);
+        for (int mask = 0; mask < (1 << w); mask++) {
+            if (cur[mask] == 0 || (mask & pillar[r]) != 0) {
+                continue;                         // 沒有這種情況，或直磚戳到柱子
+            }
+            go(0, mask | pillar[r], 0, cur[mask]);
+        }
+        cur = nxt;
+    }
+    cout << cur[0] << '\n';                       // 最後一列不能有磚伸出地板
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 3 \\
+\#.. \\
+... \\
+... \\
+..\# \\
+}{
+5 \\
+}
+
+範例每一列處理完之後的狀態（集合寫的是被蓋住的行號）：
+
+\begin{center}
+\begin{tabular}{cl}
+\toprule
+鋪完第幾列 & 伸進下一列的格子：鋪法數 \\
+\midrule
+開始 & $\varnothing$：$1$ \\
+第 $0$ 列 & $\varnothing$：$1$，\quad $\{1, 2\}$：$1$ \\
+第 $1$ 列 & $\{0\}$：$2$，\quad $\{2\}$：$1$，\quad $\{0, 1, 2\}$：$1$ \\
+第 $2$ 列 & $\varnothing$：$4$，\quad $\{0, 1\}$：$1$，\quad $\{1, 2\}$：$2$ \\
+第 $3$ 列 & $\varnothing$：$5$，\quad $\{0, 1\}$：$4$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+第 $1$ 列之後的 $\{0\}$：$2$ 就是圖~\ref{fig:bm-profile} 的兩種情況。 處理第
+$3$ 列時，$\{1, 2\}$ 的 $2$ 種被丟掉了：第 $3$ 列的第 $2$ 格是柱子，直磚戳不
+進去。 第 $3$ 列之後的 $\{0, 1\}$ 表示有磚伸出地板，不算；答案是
+$\varnothing$ 的 $5$。
+
+\begin{itemize}
+\item 直磚伸進下一列時沒有檢查下一列那格是不是柱子，留到處理下一列時用
+\texttt{mask \& pillar[r]} 一起擋掉；最後一列伸出去的直磚，則由「答案只取
+\texttt{cur[0]}」擋掉。
+\item 每一列的計算只用到上一列的 \texttt{cur}，和第 1 本第~10~章的滾動陣列一
+樣，只留兩排。
+\end{itemize}
+
+\textbf{複雜度。} 遞迴展開到最後的每一種結果對應一對 $(M, M')$：每一格不是
+被上面蓋住（在 $M$ 裡）、往下放直磚（在 $M'$ 裡），就是橫磚的一半，而且剩下
+的空格只有一種橫磚鋪法。 所以每一格三選一，一列最多 $3^w$ 種。 $w = 10$ 時每列最多約 $6 \times 10^4$ 種，
+$h = 1000$ 列最多約 $6 \times 10^7$；實際上很多組合湊不出來，沒有柱子的
+$1000 \times 10$ 在本書測試的環境下不到 $0.01$ 秒。 寬和高差很多時，讓比較窄
+的那一邊當 $w$。
+
+\textbf{地板很長的時候。} 實作練習的\akiref{tiling-a-pillared-hallway}{有柱子的長廊鋪磚}
+長度到 $10^{18}$，一列一列做來不及。 那題的柱子每 $p$ 列重複一次，從一列到
+下一列的轉移可以寫成一張 $2^w \times 2^w$ 的表（矩陣），整段長廊就是很多張表
+連乘，再用第 1 本第~8~章 8.6 節快速冪的想法加速。 矩陣乘法第 3 本會正式介紹；
+想先挑戰的讀者可以從「把 \texttt{cur} 到 \texttt{nxt} 的轉移寫成矩陣」開始。
+
+\section{什麼時候用位元 DP}
+\label{sec:bm-when}
+
+第~3~章 3.1 節的狀態表，再加上這一章的三種：
+
+\begin{center}
+\begin{tabular}{p{0.27\linewidth}p{0.36\linewidth}p{0.27\linewidth}}
+\toprule
+狀態 & 轉移在看什麼 & 本章的例子 \\
+\midrule
+一個集合 $S$ & 下一個加進來的是誰；或一次挑出一整組（子集合的子集合） & 關主、出場順序、專題小組 \\
+集合 $S$ 加上最後一個 $i$ & 從 $i$ 走到哪一個還沒去過的 $j$ & 跑腿路線、回收推車 \\
+一列格子的樣子 & 這一列怎麼鋪，伸進下一列的是哪些格子 & 鋪地磚 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+適合想到位元 DP 的訊號：
+
+\begin{itemize}
+\item 某個量特別小：$n \le 15$、$16$、$20$，或格子的寬度不超過十幾，而其他
+量很大。
+\item 題目要的是排列或分組（排順序、走遍每個點、分成幾組），暴力解是 $n!$ 或
+更多。
+\item 列出狀態後，「之後怎麼做」只看「哪些已經做過」，不看做的順序。 回收推
+車的重量就是這樣。
+\end{itemize}
+
+看起來像、其實不是的情況：
+
+\begin{itemize}
+\item \textbf{只在乎總和，不在乎是哪些。} 從 $n$ 件物品挑一些、總重不超過限
+制，物品之間沒有交互作用，那是第~1~章的背包，狀態是「前 $i$ 件、用了多少重
+量」，$n$ 可以很大。 物品之間有交互作用（某兩件不能同時拿、某幾件湊齊有加分），
+$n$ 又很小，才需要整個集合。
+\item \textbf{順序本來就固定。} 東西只能照輸入的順序處理，例如一排攤位由左到
+右，狀態是「前 $i$ 個」或第~3~章的區間，不需要集合。
+\item \textbf{$n$ 到幾十以上。} $2^{30}$ 就開不出表了。 這時要找別的結構：圖
+是一棵樹、一條線，或者其實不用經過每個點。
+\end{itemize}
+
+第 1 本第~12~章的狀態 BFS 也常用遮罩，例如迷宮裡「拿到哪幾把鑰匙」：每一步代
+價都是 $1$ 時用 BFS，代價不同、要計數或取最大值時用動態規劃。
+
+\textbf{一個位置不只兩種情況時。} 遮罩的每一位只有 $0$、$1$。 如果每種東西
+要記 $0$ 到 $3$ 個，可以每種用兩個位元，等於一個四進位數，$k$ 種東西就有
+$4^k$ 個狀態。 這時遮罩的位數是 $2k$，$k = 16$ 就要 $32$ 位，\texttt{1 << i}
+要改成 \texttt{1LL << i}，遮罩本身也要用 \texttt{long long}。 實作練習的
+\akiref{orientation-prop-bundles}{迎新道具組合包} 是這種題目。
+
+\section{本章常見錯誤}
+\label{sec:bm-pitfalls}
+
+各節的錯誤歸納成五類。 寫位元 DP 時，交出去之前逐項檢查。
+
+\begin{center}
+\begin{tabular}{p{0.18\linewidth}p{0.5\linewidth}p{0.2\linewidth}}
+\toprule
+錯誤 & 例子 & 見 \\
+\midrule
+位元運算 & \texttt{need[v] \& mask != need[v]} 少括號；\texttt{1 << 31} 超出
+\texttt{int}；兩個位元一組時忘了 \texttt{1LL} & 第~\ref{sec:ex-bm-show}、\ref{sec:bm-when}~節 \\
+不可能的狀態 & 排不出來的集合記成 $0$，從不合法的開頭接下去（印出 $24$） &
+第~\ref{sec:ex-bm-show}~節 \\
+計算順序 & 旅行推銷員的外層放 \texttt{last}（印出 $32$）；子集合的迴圈漏掉空集
+合或停不下來 & 第~\ref{sec:bm-tsp}、\ref{sec:bm-submask}~節 \\
+轉移的成本 & 回程忘了加、重量算錯時間點、題目要不要回到起點 &
+第~\ref{sec:bm-tsp}、\ref{sec:ex-bm-cart}~節 \\
+記憶體與數值 & $2^{20} \times 20$ 的表 $80$ MB、宣告在 \texttt{main} 裡當掉；費
+力值超過 \texttt{int} & 第~\ref{sec:bm-memory}、\ref{sec:ex-bm-cart}~節 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+每一題都值得做的檢查：用 $n \le 8$ 的輸入，拿試遍所有排列
+（\texttt{next\_permutation}）的暴力解對拍。
+
+\section{本章練習}
+\label{sec:bm-exercises}
+
+\begin{drills}[label=drills:bm]
+\item 用第~\ref{sec:bm-set}~節關主的分數表，改用往回拉的寫法：
+$\mathrm{dp}(S) = \max_{v \in S} \bigl(\mathrm{dp}(S \setminus \{v\}) + a_{v,|S|-1}\bigr)$。
+\begin{enumerate}
+\item \texttt{mask} $=$ \texttt{1011} 代表哪幾位關主？ 他們顧的是哪幾關？
+\item 照圖~\ref{fig:bm-lattice} 的值，算出 $\mathrm{dp}(\texttt{1011})$，寫出三個候
+選和取到最大值的是哪一個。
+\end{enumerate}
+
+\item 設 \texttt{x} $= 52$（二進位 \texttt{110100}）。
+\begin{enumerate}
+\item 求 \texttt{x \& -x}、\texttt{x \& (x - 1)}、\texttt{\_\_builtin\_ctz(x)}、
+\texttt{\_\_builtin\_popcount(x)}。
+\item 有人想判斷第 $j$ 個人不在集合裡，寫成 \texttt{if (mask \& 1 << j == 0)}。
+這個條件什麼時候成立？
+\end{enumerate}
+
+\item 估計下列表格的大小與執行次數。
+\begin{enumerate}
+\item 旅行推銷員 $n = 18$，$\mathrm{dp}(S, i)$ 用 \texttt{long long}：表格幾
+MB？ 最內層大約執行幾次？
+\item 第~\ref{sec:ex-bm-kit}~節的子集合 DP 如果 $n = 18$，固定最低位之後最內層
+大約執行幾次？
+\end{enumerate}
+
+\item 照第~\ref{sec:bm-submask}~節的迴圈，列出 \texttt{mask} $=$ \texttt{11010}
+的所有子集合，依程式走過的順序。 一共幾個？
+
+\item 第~\ref{sec:bm-tsp-table}~節的跑腿表。
+\begin{enumerate}
+\item 如果辦完事不用回家，最後停在藥局（地點 $4$），最短要幾分鐘？
+\item 如果不用回家、停在哪裡都可以呢？ 停在哪裡？
+\end{enumerate}
+
+\item 回收推車的費力值如果改成「距離 $\times$ 出發以來已經走過的總距離」，
+$\mathrm{dp}(S, i)$ 還夠嗎？ 說明理由。
+
+\item 用第~\ref{sec:bm-tiling}~節的方法，處理 $3$ 列 $2$ 行、沒有柱子的地板。
+列出每一列處理完的狀態和方法數，最後共有幾種鋪法？
+\end{drills}
+
+\section{實作練習}
+\label{sec:bm-practice}
+
+下面是 Aki-Judge 上和本章相關的題目，依狀態的形狀分組，三題例題也列在裡面。
+難度分四階：暖身直接套用本章的寫法；基本要自己定出狀態和轉移；實戰要先把題目
+轉換成本章的形狀；挑戰會和其他章的技巧合在一起。
+
+\begin{center}
+\begin{tabular}{p{0.2\linewidth}p{0.56\linewidth}c}
+\toprule
+形狀 & 題目 & 難度 \\
+\midrule
+集合 & \akiref{running-order-for-the-club-showcase}{成果發表會的出場順序}（例題） & 暖身 \\
+ & \akiref{color-chain-card-duel}{接色牌對戰} & 實戰 \\
+\midrule
+集合加最後一站 & \akiref{fair-patrol-route}{園遊會糾察的巡視路線} & 暖身 \\
+ & \akiref{the-ever-heavier-recycling-cart}{越推越重的回收推車}（例題） & 基本 \\
+ & \akiref{booth-hopping-at-the-club-fair}{社團博覽會的體驗時間} & 實戰 \\
+ & \akiref{restocking-change-at-the-school-fair}{園遊會零錢補給} & 挑戰 \\
+ & \akiref{errands-before-school-starts}{開學前的採買路線} & 挑戰 \\
+\midrule
+子集合的子集合 & \akiref{teams-with-every-piece-of-gear}{湊齊器材的專題小組}（例題） & 基本 \\
+\midrule
+其他遮罩 & \akiref{orientation-prop-bundles}{迎新道具組合包} & 挑戰 \\
+ & \akiref{tiling-a-pillared-hallway}{有柱子的長廊鋪磚} & 挑戰 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+幾點提示：接色牌對戰是兩人輪流的遊戲，狀態除了剩下的牌，還要記牌鏈兩端露出的
+顏色，值是「輪到的人會不會贏」。 園遊會零錢補給和開學前的採買路線的地圖很大，
+要先用第~8~章的 Dijkstra 算出幾個重要地點之間的最短距離，再做位元 DP。 例題
+讀完之後，可以先關上書自己寫一次，再上 Aki-Judge 提交。
+
+\section{讀完你應該會}
+\label{sec:bm-checklist}
+
+\begin{itemize}
+\item 看到某個量只有十幾、題目要排順序或分組時，能判斷要不要用集合當狀態，並
+用一句中文寫出 $\mathrm{dp}(S)$ 或 $\mathrm{dp}(S, i)$ 的意思。
+\item 能用 \texttt{|}、\texttt{\&}、\texttt{\^{}}、\texttt{x \& -x}、
+\texttt{x \& (x - 1)}、\texttt{\_\_builtin\_popcount} 寫出加入、拿掉、檢查
+子集合、找最低位，並在有比較時加上括號。
+\item 能寫出旅行推銷員的 $\mathrm{dp}(S, i)$，依題目改初始值和答案（要不要回
+起點、起點終點是否固定），並用 $\mathit{from}$ 找回路線。
+\item 能用 \texttt{sub = (sub - 1) \& mask} 列舉子集合，說出總次數為什麼是 $3^n$。
+\item 動手前能算出位元 DP 表格要幾 MB，知道 $2^{20} \times 20$ 個 \texttt{int}
+是 $80$ MB。
+\end{itemize}
+
+\textbf{延伸閱讀}（書末會整理完整的參考資料）
+
+\begin{itemize}
+\item Antti Laaksonen，\textit{Guide to Competitive Programming}，第 3 版，6.2.4、
+6.2.5 節：從排列改成子集合的動態規劃，以及一列一列數鋪磚方法的寫法，篇幅短。
+\item Steven Halim 等，\textit{Competitive Programming 4}，Book 1 第 3.5.2 節的
+旅行推銷員，和 Book 2 第 8 章更多用遮罩當狀態的題型。
+\item Steven S. Skiena，\textit{The Algorithm Design Manual}，第 3 版，10.9 節：
+用最長簡單路徑說明為什麼「沒有順序」的問題，動態規劃的狀態會變成指數個。
+\end{itemize}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item
+\begin{enumerate}
+\item 第 $0$、$1$、$3$ 位是 $1$，代表 A、B、D，他們顧第 $0$ 到第 $2$ 關。
+\item 最後一關是第 $2$ 關。 拿掉 A：$\mathrm{dp}(\{B, D\}) + a_{A,2} = 12 + 9 = 21$；
+拿掉 B：$\mathrm{dp}(\{A, D\}) + a_{B,2} = 12 + 6 = 18$；拿掉 D：
+$\mathrm{dp}(\{A, B\}) + a_{D,2} = 10 + 6 = 16$。 最大是 $21$，A 顧第 $2$ 關，
+和圖上的值相同。
+\end{enumerate}
+
+\item
+\begin{enumerate}
+\item \texttt{x \& -x} $= 4$（\texttt{000100}）；\texttt{x \& (x - 1)} $= 48$
+（\texttt{110000}）；\texttt{\_\_builtin\_ctz(x)} $= 2$；
+\texttt{\_\_builtin\_popcount(x)} $= 3$。
+\item \texttt{==} 比 \texttt{<<} 晚、比 \texttt{\&} 早算，條件是
+\texttt{mask \& ((1 << j) == 0)}。 \texttt{1 << j} 永遠不是 $0$，括號裡永遠是
+$0$，整個條件永遠不成立。 要寫成 \texttt{((mask >> j) \& 1) == 0}。
+\end{enumerate}
+
+\item
+\begin{enumerate}
+\item $2^{18} \times 18 \times 8 = 37{,}748{,}736$ 位元組，$36$ MB。 最內層約
+$2^{18} \times 18 \times 18 \approx 8.5 \times 10^7$ 次。
+\item $(3^{18} - 1)/2 \approx 1.9 \times 10^8$ 次，是 $n = 16$ 的九倍。 每次只做
+一次查表和比較，在本書測試的環境下 $n = 18$ 的隨機輸入約 $0.13$ 秒，還來得及；
+$n = 20$ 再多九倍，就很緊了。
+\end{enumerate}
+
+\item \texttt{11010}、\texttt{11000}、\texttt{10010}、\texttt{10000}、
+\texttt{01010}、\texttt{01000}、\texttt{00010}、\texttt{00000}，共 $8$ 個，
+$= 2^3$。
+
+\item
+\begin{enumerate}
+\item $\mathrm{dp}(\{1, 2, 3, 4\}, 4) = 25$ 分鐘（家 $\to 3 \to 1 \to 2 \to 4$，
+$3 + 4 + 9 + 9$）。
+\item 表的最後一列取最小，$\mathrm{dp}(\{1, 2, 3, 4\}, 2) = 23$，停在五金行。 例
+如家 $\to 4 \to 3 \to 1 \to 2$：$4 + 6 + 4 + 9 = 23$。
+\end{enumerate}
+
+\item 不夠。 已經走過的總距離和順序有關，不是 $S$ 的函數。 走進同一個
+$(S, i)$ 的兩條路線，可能一條費力值比較小、但走過的距離比較長，另一條相反；
+之後每一段都要乘上那個距離，哪一條好要看後面，沒辦法只留一條。 回收推車能用
+$\mathrm{dp}(S, i)$，正是因為重量只看 $S$。
+
+\item 開始 $\varnothing$：$1$。 第 $0$ 列（兩塊直磚或一塊橫磚）：
+$\{0, 1\}$：$1$，$\varnothing$：$1$。 第 $1$ 列：$\varnothing$ 又分出兩種，
+$\{0, 1\}$ 整列已被蓋住、只得到 $\varnothing$，合計 $\varnothing$：$2$，
+$\{0, 1\}$：$1$。 第 $2$ 列：$\varnothing$：$3$，$\{0, 1\}$：$2$。 答案是
+$\varnothing$ 的 $3$ 種。
+\end{enumerate}

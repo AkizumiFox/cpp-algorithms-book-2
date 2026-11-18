@@ -1,0 +1,1400 @@
+\chapter{數位 DP}
+\label{ch:digitdp}
+
+有些大樓的樓層、醫院的病床號碼會跳過含有 $4$ 的數字。 假設一家連鎖咖啡店的會
+員卡號也這樣發：從 $1$ 號開始，遇到 $4$、$14$、$40$ 到 $49$、$104$ 這類含有
+$4$ 的號碼就跳過。 有兩個問題：卡號 $3517$ 以內實際發出了幾張卡？ 第 $2526$
+位會員拿到的是幾號？ 往下讀之前先想一個做法。 再想一下，如果卡號是
+$10^{18}$，你的做法還來得及嗎？
+
+從 $1$ 數到 $3517$，一個一個檢查，電腦一下子就做完了。 數到 $10^{18}$ 就不行：
+照第 1 本第~1~章的估計，一秒大約 $10^8$ 次簡單運算，$10^{18}$ 次要三百多年。
+這一章的做法不看一個一個的數，改看數字的每一\textbf{位}：一次決定一位，同一
+類的數整批算。 這種做法叫\textbf{數位 DP}（digit DP）。 $10^{18}$ 只有 $19$
+位，每一位最多試 $10$ 個數字，所以運算次數和位數有關，和數值的大小無關。
+
+《C++ 演算法解題 1：APCS 實作題核心》（以下簡稱第 1 本）第~8~章 8.3 節的記憶化、
+第 1 本第~9~章的動態規劃四件事（狀態、轉移、初始值、計算順序），這一章都直接
+拿來用。 第~\ref{sec:dg-prefix}~節先不寫動態規劃，用手算解決上面的第一個問題，
+看出「比 $N$ 小的數長什麼樣子」。 第~\ref{sec:dg-skeleton}~節把它寫成數位 DP
+的固定骨架，並說清楚哪些狀態可以記住。 之後幾節依序加上前導零、多記一點資訊、
+「不含某一串數字」的狀態，以及反過來找第 $K$ 個數。 最後兩節處理兩個數一起填，
+以及很大的數和溢位。
+
+\section{比 \texorpdfstring{$N$}{N} 小的數長什麼樣子}
+\label{sec:dg-prefix}
+
+\subsection{先寫暴力解，再換成兩個前綴}
+
+會員卡的第一個問題，最直接的寫法是從 $1$ 跑到 $N$，把每個數轉成字串，看裡面有
+沒有字元 \texttt{'4'}。 這個暴力解很短，而且一定對，之後拿來對拍（用暴力解在
+小範圍比對）正好。 它的時間是 $O(N \log N)$：$N$ 個數，每個數有大約
+$\log_{10} N$ 位。
+
+題目常常問一段區間 $[L, R]$ 裡有幾個數符合條件。 這時先定義
+\[
+f(N) = 0 \text{ 到 } N \text{ 之中符合條件的個數},
+\]
+區間的答案就是 $f(R) - f(L - 1)$，和第 1 本第~5~章的前綴和是同一個想法。 這
+樣只要會算「$0$ 到 $N$」一種問題。 $L = 0$ 時 $L - 1 = -1$，規定 $f(-1) = 0$，
+程式裡要先判斷，不要把 $-1$ 轉成字串去算。
+
+\subsection{第一個不一樣的位置}
+
+把 $0$ 到 $N$ 的每個數都在左邊補 $0$，補到和 $N$ 一樣長。 以 $N = 3517$ 為
+例，$7$ 寫成 \texttt{0007}，$352$ 寫成 \texttt{0352}。 任何一個比 $N$ 小的數
+$x$，從最高位往右比，一定有一個\textbf{第一個不一樣的位置}：在這之前，$x$ 的每
+一位都和 $N$ 一樣；在這一位，$x$ 的數字比 $N$ 的小；在這之後，$x$ 的每一位都
+可以是 $0$ 到 $9$ 的任何數字，因為前面已經比較小了，後面再大也不會超過 $N$。
+
+所以比 $N$ 小的數可以照「第一個不一樣的位置」和「那一位填多少」分成很多塊，
+每一塊的形狀都是：一段和 $N$ 相同的開頭、一個比較小的數字、後面全部自由。
+$N$ 本身另外算一個。 以 $3517$ 數不含 $4$ 的個數，後面自由的每一位有 $9$ 種
+選法（不能是 $4$）：
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+第一個不一樣的位置 & 這一位可以填 & 這一塊的樣子 & 不含 $4$ 的個數 \\
+\midrule
+千位（$N$ 是 $3$） & $0, 1, 2$ & \texttt{0???}、\texttt{1???}、\texttt{2???} & $3 \times 9^3 = 2187$ \\
+百位（$N$ 是 $5$） & $0, 1, 2, 3$（跳過 $4$） & \texttt{30??} 到 \texttt{33??} & $4 \times 9^2 = 324$ \\
+十位（$N$ 是 $1$） & $0$ & \texttt{350?} & $1 \times 9 = 9$ \\
+個位（$N$ 是 $7$） & $0, 1, 2, 3, 5, 6$ & \texttt{3510} 到 \texttt{3516} & $6$ \\
+沒有（就是 $N$） & & \texttt{3517} & $1$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+加起來是 $2527$，這是 $0$ 到 $3517$ 的個數；$0$ 不是卡號，扣掉之後是 $2526$
+張。 每一塊互不重疊，因為一個數的「第一個不一樣的位置」只有一個；所有比 $N$ 小
+的數也都落在某一塊裡。 所以這樣分塊，每個數剛好算一次。
+
+如果 $N$ 的某一位就是 $4$，例如 $N = 3457$，走到百位的 $4$ 就要停：開頭是
+\texttt{34} 的數都含 $4$，再往下走的塊全部不能要，$N$ 本身也不能算。
+
+\begin{example}[label=ex:dg-no4]{cpp}{(no4.cpp) 1 到 N 之中不含 4 的數}
+#include <iostream>
+#include <string>
+using namespace std;
+
+int main() {
+    long long n;
+    cin >> n;
+    string s = to_string(n);
+    int len = s.size();
+    long long pw[20];                 // pw[r] = 9 的 r 次方
+    pw[0] = 1;
+    for (int r = 1; r < 20; r++) {
+        pw[r] = pw[r - 1] * 9;
+    }
+    long long count = 0;              // 0 到 n 之中不含 4 的個數
+    bool stopped = false;
+    for (int i = 0; i < len; i++) {
+        int c = s[i] - '0';
+        for (int d = 0; d < c; d++) {
+            if (d != 4) {
+                // 前面和 n 一樣，這一位填 d，後面任意
+                count += pw[len - 1 - i];
+            }
+        }
+        if (c == 4) {                 // 再貼著 n 走，一定含 4
+            stopped = true;
+            break;
+        }
+    }
+    if (!stopped) {
+        count++;                      // n 本身也不含 4
+    }
+    cout << count - 1 << '\n';        // 扣掉 0
+    return 0;
+}
+\end{example}
+
+\iosample{
+3517 \\
+}{
+2526 \\
+}
+
+\begin{itemize}
+\item 迴圈的第 $i$ 輪處理「第一個不一樣的位置是第 $i$ 位」的那幾塊，後面還有
+\texttt{len - 1 - i} 位自由。 一輪做完，等於確定第 $i$ 位和 $N$ 一樣，往下一
+位走。
+\item 這支程式也數了「有前導零」的數，例如 \texttt{0007}。 這裡沒有問題，因為
+補上去的 $0$ 不是 $4$，不會改變答案。 第~\ref{sec:dg-started}~節會看到前導零
+會影響答案的題目。
+\item 時間是 $O(10 \times \text{位數})$，$N = 10^{18}$ 也只有 $19$ 位。
+\end{itemize}
+
+這一節的做法有一個前提：後面自由的那幾位有幾種填法，算得出一個公式（這裡是
+$9^r$）。 條件一複雜，例如「數字和是 $7$ 的倍數」，後面幾位的填法數就和前面
+填了什麼有關，沒有簡單的公式。 下一節用動態規劃處理這件事。
+
+\section{數位 DP 的骨架}
+\label{sec:dg-skeleton}
+
+換一個問題：$L$ 到 $R$ 之中，各位數字的和是 $k$ 的倍數的數有幾個？
+$R \le 10^{18}$，$k \le 100$。 例如 $k = 5$ 時，$32$（和 $5$）、$136$（和
+$10$）都算，$36$ 不算。
+
+照上一節的分塊，第一個不一樣的位置之後的每一位仍然自由，可是「自由的那幾位要
+填出多少的和」取決於前面的數字和。 前面加起來除以 $k$ 餘 $2$，後面就要補一個
+除以 $k$ 餘 $k - 2$ 的和。 所以除了「填到第幾位」，還要記住目前的數字和除以
+$k$ 的餘數。
+
+\subsection{四件事}
+
+把 $N$ 寫成字串 \texttt{s}，長度 $n$，從最高位開始一位一位填。
+
+\begin{itemize}
+\item \textbf{狀態}：$\mathrm{dfs}(\mathit{pos}, \mathit{rem}, \mathit{tight})$
+＝ 已經填好前 $\mathit{pos}$ 位、這幾位的和除以 $k$ 餘 $\mathit{rem}$ 時，把剩
+下的位數填完、讓整個數不超過 $N$ 而且數字和是 $k$ 的倍數，有幾種填法。
+$\mathit{tight}$ 是一個真假值，表示前 $\mathit{pos}$ 位是不是每一位都和 $N$
+一樣，也就是還\textbf{貼著上界}。
+\item \textbf{轉移}：這一位填 $d$。 貼著上界時 $d$ 只能從 $0$ 填到 $N$ 的這一
+位 \texttt{s[pos]}，否則 $0$ 到 $9$ 都可以。 填完之後餘數變成
+$(\mathit{rem} + d) \bmod k$；原本貼著、而且 $d$ 剛好等於 \texttt{s[pos]}，才
+繼續貼著。 把每個 $d$ 的結果加起來。
+\item \textbf{初始值}：$\mathit{pos} = n$ 時已經填完，是一個數。 餘數是 $0$ 就
+算一個，否則不算。
+\item \textbf{計算順序}：$\mathit{pos}$ 只會變大，用記憶化的遞迴最自然。 答案
+是 $\mathrm{dfs}(0, 0, \text{true})$：什麼都還沒填時，當然和 $N$ 一樣（空的開
+頭），算是貼著上界。
+\end{itemize}
+
+$\mathit{tight}$ 就是上一節的「第一個不一樣的位置」換個說法：$\mathit{tight}$
+從真變成假的那一位，就是第一個比 $N$ 小的位置。 貼著上界的路只有一條，沿著
+$N$ 的數字走；每一步往旁邊岔出去，就是一整塊後面自由的數。 下圖是 $N = 347$
+的情形，三層岔出去的塊加上 $N$ 本身，就是 $0$ 到 $347$ 的全部：
+
+\begin{center}
+\begin{tikzpicture}[x=1cm, y=1cm,
+    blk/.style={draw=black!55, fill=black!5, font=\small, align=center, inner sep=4pt}]
+\node[cell, minimum width=1.2cm] (r) at (0,0) {開頭};
+\node[hlcell] (a) at (3,0) {3};
+\node[hlcell] (b) at (6,0) {4};
+\node[hlcell] (c) at (9,0) {7};
+\draw[diagarrow, draw=memStroke] (r) -- node[above, font=\small] {填 $3$} (a);
+\draw[diagarrow, draw=memStroke] (a) -- node[above, font=\small] {填 $4$} (b);
+\draw[diagarrow, draw=memStroke] (b) -- node[above, font=\small] {填 $7$} (c);
+\node[blk] (x) at (0,-2) {\texttt{0??}、\texttt{1??}、\texttt{2??}\\後面 $2$ 位自由};
+\node[blk] (y) at (3.3,-2) {\texttt{30?} 到 \texttt{33?}\\後面 $1$ 位自由};
+\node[blk] (z) at (6.4,-2) {\texttt{340} 到 \texttt{346}\\沒有自由的位};
+\node[blk] (w) at (9.4,-2) {\texttt{347}\\$N$ 本身};
+\draw[diagarrow] (r) -- node[left, font=\small] {填 $0$ 到 $2$} (x);
+\draw[diagarrow] (a) -- node[left, font=\small] {填 $0$ 到 $3$} (y);
+\draw[diagarrow] (b) -- node[left, font=\small] {填 $0$ 到 $6$} (z);
+\draw[diagarrow] (c) -- (w);
+\end{tikzpicture}
+\diagcaption{$N = 347$。 上面一排是貼著上界的狀態，沿著 $N$ 的數字走；每往下
+岔出去一次，就離開了上界，後面的位數都自由。}
+\label{fig:dg-tight-path}
+\end{center}
+
+$k = 5$ 時每一塊各有幾個：
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+塊 & 前面的和 $\bmod 5$ & 後面要補的和 $\bmod 5$ & 個數 \\
+\midrule
+\texttt{0??}、\texttt{1??}、\texttt{2??} & $0, 1, 2$ & $0, 4, 3$ & 各 $20$ \\
+\texttt{30?} 到 \texttt{33?} & $3, 4, 0, 1$ & $2, 1, 0, 4$ & 各 $2$ \\
+\texttt{340} 到 \texttt{346} & $(7 + d) \bmod 5$ & 沒有自由的位 & $1$（\texttt{343}） \\
+\texttt{347} & $4$ & & $0$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+兩位數字 \texttt{00} 到 \texttt{99} 的和除以 $5$，五種餘數各有 $20$ 個；一位
+數字 $0$ 到 $9$，五種餘數各 $2$ 個。 \texttt{340} 到 \texttt{346} 那一塊沒有
+自由的位，前面 $3 + 4$ 加上個位 $d$，只有 $d = 3$ 時和是 $10$。 \texttt{347}
+的數字和是 $14$，不算。 合計 $60 + 8 + 1 = 69$，這是 $f(347)$，其中包含 $0$。
+問 $1$ 到 $347$ 時，再減掉 $f(0) = 1$，得到 $68$。
+
+\begin{example}[label=ex:dg-digitsum]{cpp}{(digitsum.cpp) 數字和是 k 的倍數：記憶化的寫法}
+#include <cstring>
+#include <iostream>
+#include <string>
+using namespace std;
+
+int k;
+string s;                    // 上界 N 的十進位寫法
+// memo[剩下幾位][數字和 mod k]，-1 表示還沒算
+long long memo[20][100];
+
+// 從第 pos 位填到最後一位。 前面填的數字和除以 k 餘 rem；
+// tight 表示前面每一位都和 N 一樣。
+long long dfs(int pos, int rem, bool tight) {
+    int n = s.size();
+    if (pos == n) {                       // 填完了，這是一個數
+        return rem == 0 ? 1 : 0;
+    }
+    if (!tight && memo[n - pos][rem] != -1) {
+        return memo[n - pos][rem];
+    }
+    int up = tight ? s[pos] - '0' : 9;    // 這一位最多填多少
+    long long total = 0;
+    for (int d = 0; d <= up; d++) {
+        total += dfs(pos + 1, (rem + d) % k, tight && d == up);
+    }
+    if (!tight) {
+        memo[n - pos][rem] = total;
+    }
+    return total;
+}
+
+long long f(long long N) {       // 0 到 N 之中符合的個數
+    if (N < 0) {
+        return 0;
+    }
+    s = to_string(N);
+    return dfs(0, 0, true);
+}
+
+int main() {
+    long long L, R;
+    cin >> L >> R >> k;
+    memset(memo, -1, sizeof(memo));
+    cout << f(R) - f(L - 1) << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+1 347 5 \\
+}{
+68 \\
+}
+
+\begin{itemize}
+\item \texttt{up} 是這一位能填的最大數字。 新的 \texttt{tight} 寫成
+\texttt{tight \&\& d == up}：不貼著的時候 \texttt{up} 是 $9$，填 $9$ 也不會變
+回貼著，靠的是前面的 \texttt{tight} 已經是假。
+\item \texttt{memset} 把每個位元組設成 \texttt{0xFF}，\texttt{long long} 的
+八個位元組都是 \texttt{0xFF} 剛好是 $-1$，所以可以用來把整張表設成「還沒算」。
+這個技巧只對 $0$ 和 $-1$ 有用。
+\item $10^{18}$ 有 $19$ 位，\texttt{memo} 的第一維開 $20$。
+\end{itemize}
+
+\subsection{哪些狀態可以記住}
+\label{sec:dg-memo}
+
+程式只在 \texttt{tight} 是假的時候讀寫 \texttt{memo}，原因有兩個。
+
+第一，貼著上界的狀態不用記。 從圖~\ref{fig:dg-tight-path} 看，貼著上界的路只
+有一條，每一層只有一個貼著的狀態，每個只會走到一次，記了也不會再用到。
+
+第二，貼著上界的狀態\textbf{不能}和不貼的共用同一格。 不貼的時候，答案只和「剩
+下幾位」「目前餘數」有關，和 $N$ 長什麼樣子無關：剩下兩位、餘數 $1$，不管 $N$
+是 $347$ 還是 $999$，答案都是「兩位數字的和補成餘數 $0$ 的填法數」。 貼著的
+時候，剩下的位數還受 $N$ 的數字限制，答案不一樣。 如果把兩種狀態存進同一格，
+就會把「受限」的答案拿去給「自由」的狀態用，或者反過來。
+
+不貼的狀態和 $N$ 無關，還有一個好處：\texttt{memo} 用「剩下幾位」
+\texttt{n - pos} 當索引，算 $f(R)$ 存下來的值，算 $f(L - 1)$ 時可以直接拿來
+用，不用清空。 如果改用「目前是第幾位」\texttt{pos} 當索引，$R$ 和 $L - 1$ 的
+位數不同時，同一個 \texttt{pos} 代表的剩餘位數就不同，又沒有清空的話會讀到錯的
+值。 把範例~\ref{ex:dg-digitsum} 的 \texttt{memo[n - pos]} 都改成
+\texttt{memo[pos]}，輸入 \texttt{100 347 5} 的正確答案是 $49$，程式卻印出
+\texttt{-59}：$f(99)$ 在 \texttt{pos = 1}（只剩一位）讀到的是 $f(347)$ 存的
+「剩兩位」的值。
+
+不過有一種情況還是要清空：狀態的意義依賴題目給的其他數。 這一題的 \texttt{memo}
+依賴 $k$。 如果一個輸入有好幾組測試資料、每組的 $k$ 不一樣，每組開始時都要重新
+\texttt{memset}。
+
+狀態數：剩下的位數最多 $19$ 種、餘數 $k$ 種，每個狀態試 $10$ 個數字，總共大約
+$19 \times 100 \times 10 = 1.9 \times 10^4$ 次，再加上貼著上界的那 $19$ 個狀
+態。 和 $N$ 是 $10^{18}$ 相比，小得可以忽略。
+
+\subsection{改成填表}
+\label{sec:dg-table}
+
+記憶化的遞迴是從答案往回問。 也可以像第 1 本第~9~章那樣先把表填好。 不貼上界
+的部分和 $N$ 無關，所以先算一張「自由的位數」的表：
+\[
+\mathrm{ways}(r, m) = r \text{ 個數字（每個都可以是 } 0 \text{ 到 } 9 \text{）的和除以 } k \text{ 餘 } m \text{ 的填法數}.
+\]
+初始值 $\mathrm{ways}(0, 0) = 1$（零個數字，和是 $0$），轉移是看最前面那個數字
+填多少。 表填好之後，沿著 $N$ 的數字走一遍，就是第~\ref{sec:dg-prefix}~節的分
+塊：每一位試所有比 \texttt{s[i]} 小的 $d$，那一塊的個數直接查表。
+
+\begin{example}[label=ex:dg-digitsum-table]{cpp}{(digitsum\_table.cpp) 數字和是 k 的倍數：填表的寫法}
+#include <iostream>
+#include <string>
+using namespace std;
+
+int k;
+// ways[r][m]：r 個數字（可以是 0）的和除以 k 餘 m 的填法數
+long long ways[19][100];
+
+long long f(long long N) {   // 0 到 N 之中符合的個數
+    if (N < 0) {
+        return 0;
+    }
+    string s = to_string(N);
+    int n = s.size();
+    long long total = 0;
+    int pre = 0;             // 貼著 N 走到這裡，前面的數字和 mod k
+    for (int i = 0; i < n; i++) {
+        int c = s[i] - '0';
+        for (int d = 0; d < c; d++) {   // 填比 N 小的 d，後面自由
+            int m = (pre + d) % k;
+            // 後面的和要補成 k 的倍數
+            total += ways[n - 1 - i][(k - m) % k];
+        }
+        pre = (pre + c) % k;
+    }
+    if (pre == 0) {
+        total++;             // N 本身
+    }
+    return total;
+}
+
+int main() {
+    long long L, R;
+    cin >> L >> R >> k;
+    ways[0][0] = 1;          // 0 個數字，和是 0
+    for (int r = 1; r <= 18; r++) {
+        for (int m = 0; m < k; m++) {
+            for (int d = 0; d <= 9; d++) {   // 最前面那一位填 d
+                ways[r][(m + d) % k] += ways[r - 1][m];
+            }
+        }
+    }
+    cout << f(R) - f(L - 1) << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+1 347 5 \\
+}{
+68 \\
+}
+
+\begin{itemize}
+\item 前面的和餘 $m$ 時，後面要補的是 $(k - m) \bmod k$。 最外層再取一次
+\texttt{\% k}，是為了 $m = 0$ 時得到 $0$ 而不是 $k$。
+\item 表只開到 $r = 18$。 $N \le 10^{18}$ 最多 $19$ 位，第一位之後最多剩 $18$
+位自由。 $\mathrm{ways}(r, \cdot)$ 加起來是 $10^r$，$r = 19$ 時 $k = 1$ 的那一
+格就是 $10^{19}$，超過 \texttt{long long}。 把迴圈改成 $r \le 19$，用
+\texttt{-fsanitize=undefined} 編譯後輸入 \texttt{1 347 1}，會看到
+\texttt{signed integer overflow} 的錯誤訊息；沒有開這個選項的話，程式默默算出
+一個沒有用到的錯誤值。 不用的格子就不要算。
+\item 「$N$ 本身」要另外加，因為迴圈只算了比 $N$ 小的數。
+\end{itemize}
+
+兩種寫法算的是同一個東西。 記憶化的寫法比較接近「一位一位決定」的想法，加狀
+態時只要改參數；填表的寫法把和 $N$ 無關的部分抽出來，同一張表可以拿來回答很多
+個不同的 $N$，第~\ref{sec:dg-kth}~節找第 $K$ 個數時就要用到這一點。 這一章的
+例題兩種都會用。
+
+\section{前導零}
+\label{sec:dg-started}
+
+前兩節都把短的數補成和 $N$ 一樣長，因為補上去的 $0$ 不會改變答案：$0$ 不是
+$4$，加進數字和也是加 $0$。 很多條件沒有這麼幸運。 數「含幾個 $0$」時，$7$
+寫成 \texttt{007} 會多出兩個 $0$；看「相鄰兩位」時，$5$ 寫成 \texttt{05} 會多
+出一組 \texttt{0} 和 \texttt{5}。
+
+解法是再加一個狀態 $\mathit{started}$：前面是不是已經寫下第一個非零的數字。
+還沒開始的時候，這一位填 $0$ 代表「這個數比較短，這一位不存在」，不算任何東西；
+填一個非零數字，數就從這一位開始。 開始之後，填的 $0$ 才是真的 $0$。 一路都
+沒有開始，表示每一位都是 $0$，這是整數 $0$，要依題目另外判斷它算不算。
+
+\subsection{例題：恰好 \texorpdfstring{$k$}{k} 個零的整數}
+\label{sec:dg-ex-zeros}
+
+\textbf{題意}（\akiref{integers-with-exactly-k-zeros}{恰好 k 個零的整數}）
+
+\begin{itemize}
+\item 給 $L$、$R$、$k$，數 $L$ 到 $R$ 的整數之中，十進位寫法裡恰好有 $k$ 個
+數字 $0$ 的有幾個。
+\item 寫法照一般習慣：正整數沒有前導零，所以 $7$ 沒有 $0$，$100$ 有兩個；整數
+$0$ 寫成 \texttt{0}，有一個 $0$。
+\item $0 \le L \le R \le 10^{18}$，$0 \le k \le 18$。
+\end{itemize}
+
+例如 $L = 0$、$R = 120$、$k = 1$：整數 $0$ 算一個；兩位數的 $10, 20, \ldots,
+90$ 九個；三位數的 $101$ 到 $109$ 九個（$100$ 有兩個 $0$），以及 $110$、
+$120$。 共 $21$ 個。
+
+\textbf{想法}
+
+暴力解從 $L$ 跑到 $R$，每個數數一次 $0$。 $R - L$ 可以到 $10^{18}$，來不及。
+照前兩節，答案寫成 $f(R) - f(L - 1)$，$f(N)$ 是 $0$ 到 $N$ 之中恰有 $k$ 個 $0$
+的個數，$f(-1) = 0$。
+
+狀態要記：填到第幾位、目前寫了幾個 $0$、是否貼著上界、是否已經開始。
+
+\begin{itemize}
+\item 這一位填 $d$。 已經開始而且 $d = 0$，$0$ 的個數加一；還沒開始時填 $0$ 不
+算。 $d \ne 0$ 時，從這一位開始（已經開始的維持開始）。
+\item 填完時，如果一直沒有開始，這是整數 $0$，只有 $k = 1$ 時算；否則看 $0$ 的
+個數是不是剛好 $k$。
+\item $0$ 的個數超過 $k$ 就可以直接回傳 $0$，後面再填也不會變少。
+\end{itemize}
+
+記憶化只記「不貼上界、已經開始」的狀態，用 \texttt{memo[剩下幾位][0 的個數]}。
+還沒開始的狀態和已經開始的不能共用：同樣剩兩位、目前沒有 $0$，已經開始的話
+\texttt{?0} 的 $0$ 要算，還沒開始的話 \texttt{0?} 的 $0$ 不算，填法數不同。
+還沒開始的狀態每一層也只有一個（前面全是 $0$、不貼上界），不記也不慢。
+
+$N = 120$、$k = 1$ 時，照前兩位分開來看：
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+前兩位 & 涵蓋的數 & 走到第三位時的狀態 & 符合的個數 \\
+\midrule
+\texttt{00} & $0$ 到 $9$ & 還沒開始 & $1$（只有整數 $0$） \\
+\texttt{01} 到 \texttt{09} & $10$ 到 $99$ & 已開始、$0$ 個 $0$、不貼 & 各 $1$，共 $9$ \\
+\texttt{10} & $100$ 到 $109$ & 已開始、$1$ 個 $0$、不貼 & $9$ \\
+\texttt{11} & $110$ 到 $119$ & 已開始、$0$ 個 $0$、不貼 & $1$ \\
+\texttt{12} & $120$ & 貼著上界 & $1$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+第二列的九種開頭走到同一個狀態（剩一位、$0$ 個 $0$），只有第一次真的算，後面
+八次都從 \texttt{memo} 拿；第四列 \texttt{11} 也是這個狀態。 合計 $21$。
+
+同樣的模型也出現在別的地方：發票號碼、車牌號碼、訂單編號裡某個數字出現幾次，
+都是「數字的某個性質在一個大範圍裡出現幾次」。
+
+\textbf{程式}
+
+\begin{example}[label=ex:dg-zeros]{cpp}{(zeros.cpp) 恰好 k 個零的整數}
+#include <cstring>
+#include <iostream>
+#include <string>
+using namespace std;
+
+int k;
+string s;
+// memo[剩下幾位][已經寫了幾個 0]，只存 !tight 且 started 的狀態
+long long memo[20][20];
+
+// started：前面是否已經寫下第一個非零數字；
+// 還沒開始時填的 0 是前導零
+long long dfs(int pos, int zeros, bool tight, bool started) {
+    if (zeros > k) {
+        return 0;                          // 0 已經太多了
+    }
+    int n = s.size();
+    if (pos == n) {
+        if (!started) {          // 每一位都是 0：整數 0，寫作 "0"
+            return k == 1 ? 1 : 0;
+        }
+        return zeros == k ? 1 : 0;
+    }
+    bool useMemo = !tight && started;
+    if (useMemo && memo[n - pos][zeros] != -1) {
+        return memo[n - pos][zeros];
+    }
+    int up = tight ? s[pos] - '0' : 9;
+    long long total = 0;
+    for (int d = 0; d <= up; d++) {
+        // 已經開始之後的 0 才算，前導零不算
+        int nz = zeros + ((started && d == 0) ? 1 : 0);
+        bool ns = started || d != 0;
+        total += dfs(pos + 1, nz, tight && d == up, ns);
+    }
+    if (useMemo) {
+        memo[n - pos][zeros] = total;
+    }
+    return total;
+}
+
+long long f(long long N) {    // 0 到 N 之中恰有 k 個 0 的個數
+    if (N < 0) {
+        return 0;
+    }
+    s = to_string(N);
+    return dfs(0, 0, true, false);
+}
+
+int main() {
+    long long L, R;
+    cin >> L >> R >> k;
+    memset(memo, -1, sizeof(memo));
+    cout << f(R) - f(L - 1) << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+0 120 1 \\
+}{
+21 \\
+}
+
+\begin{itemize}
+\item \texttt{started || d != 0} 是新的 $\mathit{started}$：已經開始的維持開始，
+還沒開始的遇到非零數字才開始。
+\item \texttt{memo} 依賴 $k$（結尾比的是 \texttt{zeros == k}），這題一個輸入
+只有一個 $k$，所以只在 \texttt{main} 開頭清一次。
+\item 答案最大大約 $3.2 \times 10^{17}$（$L = 0$、$R = 10^{18}$、$k = 1$ 時），
+要用 \texttt{long long}。
+\end{itemize}
+
+\textbf{複雜度}
+
+會記憶化的狀態最多 $19 \times 19$ 個，每個試 $10$ 個數字；貼著上界和還沒開始
+的狀態各只有 $19$ 個左右。 算兩次 $f$，總共幾千次運算，最大的測試資料在本書測
+試的環境下不到 $0.01$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{前導零也算成 $0$}：把 \texttt{nz} 寫成 \texttt{zeros + (d == 0 ?
+1 : 0)}，等於把每個數都補成和 $N$ 一樣長再數。 輸入 \texttt{95 1005 2} 的正
+確答案是 $14$，程式印出 \texttt{248}：$95$ 被看成 \texttt{0095}，$7$ 被看成
+\texttt{0007}，全都多了 $0$。
+\item \textbf{忘了整數 $0$}：結尾寫成只有 \texttt{return zeros == k ? 1 : 0;}，
+整數 $0$ 的 \texttt{zeros} 是 $0$，被當成「沒有 $0$」。 範例的輸入印出
+\texttt{20}，少了 $0$ 本身；$k = 0$ 時則會多算一個。
+\item \textbf{還沒開始的狀態也記}：\texttt{useMemo} 寫成只看 \texttt{!tight}。
+範例的輸入剛好還是 $21$，輸入 \texttt{95 1005 2} 卻印出 \texttt{5}。 算
+$f(1005)$ 時，還沒開始、剩兩位、$0$ 個 $0$ 的狀態（\texttt{00??} 的後兩位）先存
+進表裡；接著已經開始的 \texttt{01??}、\texttt{02??} 等等走到同一格，讀到的是「後
+兩位的 $0$ 是前導零、不算」的答案。 $100, 200, \ldots, 900$ 這九個就這樣漏掉
+了。
+\item \textbf{貼著上界的狀態也記}：\texttt{useMemo} 寫成只看 \texttt{started}。
+輸入 \texttt{1 20 0} 的正確答案是 $18$（$1$ 到 $9$、$11$ 到 $19$），程式印出
+\texttt{27}：貼著上界的 \texttt{2?} 讀到了不貼的 \texttt{1?} 存的值，把 $21$
+到 $29$ 也算了進去。 兩個範例的輸入都剛好答對，這種錯要靠對拍。
+\item \textbf{$L - 1$ 用無號整數}：把 $L$、$R$ 宣告成 \texttt{unsigned long
+long}，並拿掉 \texttt{N < 0} 的判斷。 $L = 0$ 時 \texttt{L - 1} 變成
+$2^{64} - 1$，範例的輸入在本書測試的環境下印出 \texttt{-5394818876798596471}。
+\end{itemize}
+
+\section{狀態多帶一點資訊}
+\label{sec:dg-extra}
+
+到目前為止，除了位置、$\mathit{tight}$、$\mathit{started}$ 之外，狀態只多記了
+一個數：數字和的餘數，或是 $0$ 的個數。 設計數位 DP 時，要問的問題都一樣：一
+位一位由左往右填，填到一半時，\textbf{要知道前面的什麼，才能判斷後面怎麼填會
+符合條件}？ 常見的有這幾種：
+
+\begin{center}
+\begin{tabular}{p{0.38\linewidth}p{0.3\linewidth}p{0.2\linewidth}}
+\toprule
+條件 & 要多記的東西 & 可能的值 \\
+\midrule
+數字和、整個數是 $k$ 的倍數 & 數字和或整個數除以 $k$ 的餘數 & $k$ 種 \\
+相鄰兩位有關（奇偶交錯、遞增） & 前一位數字 & $10$ 種 \\
+某個數字恰好、最多出現幾次 & 已經出現幾次 & 最多 $19$ 種 \\
+同一個數字不能連續太多次 & 前一位數字、目前連續幾次 & $10 \times$ 上限 \\
+數字裡不能出現某一串 & 目前對上那一串的幾個字 & 那一串的長度 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+整個數除以 $k$ 的餘數也可以一位一位算：前面的數是 $x$、這一位填 $d$，新的數是
+$10x + d$，餘數是 $(10 \cdot \mathit{rem} + d) \bmod k$。 最後一列在第
+~\ref{sec:dg-automaton}~節講。
+
+估計狀態數的方法和第 1 本第~9~章一樣，把每一個量可能的值相乘，再乘上每個狀態試
+的 $10$ 個數字。 前一位和連續次數一起記，是 $19 \times 10 \times 5 \times 10$
+左右，都很小。 數位 DP 很少因為狀態太多而太慢，比較常見的問題是狀態少記了一
+樣，或者 $\mathit{started}$、$\mathit{tight}$ 沒處理好。
+
+\subsection{要的是總和，不是個數}
+
+有些題目問的是「每個數都有一個量，全部加起來是多少」，
+例如 $1$ 到 $N$ 所有數的數字和。 這時每個狀態要回傳兩個數：
+
+\begin{itemize}
+\item $\mathit{cnt}$：從這個狀態往後，有幾種填法；
+\item $\mathit{sum}$：這些填法在後面產生的量，全部加起來。
+\end{itemize}
+
+關鍵在於：這一位造成的量，會出現在後面\textbf{每一種}填法裡。 以數字和為例，
+這一位填 $d$，後面有 $c$ 種填法，這個 $d$ 就在 $c$ 個數裡各加了一次，總共是
+$d \times c$。 所以
+\[
+\mathit{sum} \mathrel{+}= \mathit{sum}' + d \cdot \mathit{cnt}', \qquad
+\mathit{cnt} \mathrel{+}= \mathit{cnt}',
+\]
+$(\mathit{cnt}', \mathit{sum}')$ 是填了 $d$ 之後那個狀態的回傳值。 只加 $d$
+而不是 $d \cdot \mathit{cnt}'$，是這類題目最常見的錯。
+
+\subsection{例題：所有號碼的上坡次數總和}
+\label{sec:dg-ex-ascent}
+
+\textbf{題意}（\akiref{total-climbs-over-all-ticket-numbers}{所有號碼的上坡次數總和}）
+
+\begin{itemize}
+\item 把一個正整數的十進位寫法（沒有前導零）由左往右看，相鄰兩位如果左邊的數
+字比右邊的小，就是一次\textbf{上坡}。 例如 $1324$ 有兩次（$1 \to 3$、
+$2 \to 4$），$5577$ 有一次，$5$ 沒有。
+\item 給 $L$、$R$，求 $L$ 到 $R$ 每個整數的上坡次數加起來是多少。
+\item $1 \le L \le R \le 10^{17}$，答案在 \texttt{long long} 的範圍內。
+\end{itemize}
+
+例如 $L = 1$、$R = 20$：一位數都沒有上坡；$10$、$11$、$20$ 也沒有；$12$ 到
+$19$ 各一次。 答案是 $8$。
+
+\textbf{想法}
+
+暴力解對每個數數一次上坡，$R$ 到 $10^{17}$，來不及。 令 $g(x)$ 為 $1$ 到 $x$
+的上坡次數總和，答案是 $g(R) - g(L - 1)$。
+
+判斷這一位會不會造成上坡，要知道前一位的數字，所以狀態是（位置、前一位數字、
+是否貼著上界、是否已經開始）。 前導零在這題一定要處理：$5$ 不能看成
+\texttt{05}，不然 $0 \to 5$ 會被當成一次上坡。 還沒開始時沒有「前一位」，第一
+個非零數字也不會和前面形成上坡。
+
+這題要的是總和，所以每個狀態回傳 $(\mathit{cnt}, \mathit{sum})$。 這一位填
+$d$，如果已經開始而且前一位比 $d$ 小，這一次上坡會出現在後面每一種填法裡，要加
+$\mathit{cnt}'$。
+
+用不貼上界的狀態檢查一次。 剩一位、前一位是 $p$：後面有 $10$ 種填法，其中
+$9 - p$ 種比 $p$ 大，所以是 $(10, 9 - p)$。 剩兩位、前一位是 $1$：這兩位寫成
+$ab$，$a$ 有 $8$ 種比 $1$ 大，每一種後面接 $10$ 個 $b$，這一步貢獻
+$8 \times 10 = 80$；$a$ 到 $b$ 的上坡，是十個 $(10, 9 - a)$ 的 $\mathit{sum}$
+加起來，$9 + 8 + \cdots + 0 = 45$。 所以是 $(100, 125)$，也就是 $100$ 到
+$199$ 的上坡次數總和是 $125$。 如果第一步只加 $8$，就變成 $53$，少算了很多。
+
+同樣的模型也出現在別的地方：統計一大批流水號裡總共用了幾個某種數字、全部號碼
+的數字和、每個號碼的某種分數加總，都是「每個數一個量，求全部的總和」。
+
+\textbf{程式}
+
+\begin{example}[label=ex:dg-ascent]{cpp}{(ascent.cpp) 所有號碼的上坡次數總和}
+#include <iostream>
+#include <string>
+using namespace std;
+
+struct Info {
+    long long cnt;   // 從這裡往後有幾種填法
+    long long sum;   // 這些填法在後面產生的上坡次數加起來
+};
+
+string s;
+// memo[剩下幾位][前一位數字]，只存 !tight 且 started 的狀態
+Info memo[20][10];
+bool done[20][10];
+
+Info dfs(int pos, int prev, bool tight, bool started) {
+    int n = s.size();
+    if (pos == n) {
+        return {1, 0};             // 填完了：一種填法，沒有上坡
+    }
+    bool useMemo = !tight && started;
+    if (useMemo && done[n - pos][prev]) {
+        return memo[n - pos][prev];
+    }
+    int up = tight ? s[pos] - '0' : 9;
+    Info res = {0, 0};
+    for (int d = 0; d <= up; d++) {
+        bool nt = tight && d == up;
+        Info sub;
+        if (!started && d == 0) {      // 還是前導零：沒有寫下數字
+            sub = dfs(pos + 1, 0, nt, false);
+        } else {
+            sub = dfs(pos + 1, d, nt, true);
+            if (started && prev < d) {
+                res.sum += sub.cnt;    // 出現在後面每一種填法裡
+            }
+        }
+        res.cnt += sub.cnt;
+        res.sum += sub.sum;
+    }
+    if (useMemo) {
+        done[n - pos][prev] = true;
+        memo[n - pos][prev] = res;
+    }
+    return res;
+}
+
+long long climbs(long long x) {   // 1 到 x 所有整數的上坡次數總和
+    if (x <= 0) {
+        return 0;
+    }
+    s = to_string(x);
+    return dfs(0, 0, true, false).sum;
+}
+
+int main() {
+    long long L, R;
+    cin >> L >> R;
+    cout << climbs(R) - climbs(L - 1) << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+1 20 \\
+}{
+8 \\
+}
+
+\begin{itemize}
+\item 回傳兩個數，用一個小 \texttt{struct}。 \texttt{\{1, 0\}} 這種寫法直接依
+成員的順序設初值。 也可以用 \texttt{pair<long long, long long>}，只是
+\texttt{.first}、\texttt{.second} 比較看不出意思。
+\item \texttt{memo} 的初值不容易用一個「不可能的值」表示，所以另外開一個
+\texttt{done} 記哪些格子算過。 全域的 \texttt{bool} 陣列一開始都是
+\texttt{false}。
+\item \texttt{memo} 和題目的其他數無關（不像前一題依賴 $k$），算 $g(R)$ 存下
+的值，算 $g(L - 1)$ 時直接用。
+\item $x = 0$ 時 \texttt{climbs} 直接回傳 $0$，所以 $L = 1$ 不用另外判斷。 整數
+$0$ 的上坡次數本來就是 $0$，算不算進去都一樣，這題不用特別處理它。
+\end{itemize}
+
+\textbf{複雜度}
+
+不貼上界的狀態最多 $18 \times 10$ 個，每個試 $10$ 個數字，算兩次。
+$g(10^{17})$ 大約是 $7.1 \times 10^{17}$，在 \texttt{long long} 的範圍內。 最大的測試資料在本書測試的環境下不到 $0.01$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{沒有 $\mathit{started}$}：把每個數補成一樣長，第一位以後一律和前
+一位比。 範例的輸入印出 \texttt{17}：$1$ 到 $9$ 被看成 \texttt{01} 到
+\texttt{09}，多了九次 $0$ 往上的上坡。
+\item \textbf{上坡只加一}：把 \texttt{res.sum += sub.cnt;} 寫成
+\texttt{res.sum += 1;}。 範例的輸入剛好是 $8$（兩位數時後面只剩一種填法），
+輸入 \texttt{1 1000} 的正確答案是 $801$，程式印出 \texttt{477}。
+\item \textbf{區間少一個端點}：寫成 \texttt{climbs(R) - climbs(L)}，$L$ 本身的
+上坡被扣掉了。 輸入 \texttt{12 12} 應該是 $1$，這樣寫印出 \texttt{0}。
+\end{itemize}
+
+\section{不含某一串數字：小型自動機}
+\label{sec:dg-automaton}
+
+回到章首的會員卡，把「不含 $4$」換成「不含某一串數字 $P$」，例如 $P =$
+\texttt{13} 或 \texttt{112}：號碼的十進位寫法裡，$P$ 不能以連續的一段出現。
+$|P| = 1$ 就是章首的問題。
+
+一位一位填的時候，要記住前面的什麼？ 直覺的答案是「目前已經連續對上 $P$ 的幾
+個字」，記成 $j$：下一個數字等於 $P$ 的第 $j + 1$ 個字就 $j$ 加一，到 $|P|$
+表示 $P$ 出現了；對不上就歸零（如果剛好等於 $P$ 的第一個字，就記成 $1$）。
+
+這個做法會漏。 $P =$ \texttt{112}，號碼 \texttt{1112}：讀完 \texttt{11}，
+$j = 2$；第三個字 \texttt{1} 對不上 \texttt{2}，歸零後因為它等於 \texttt{1}，記
+成 $j = 1$；第四個字 \texttt{2} 對不上 $P$ 的第二個字 \texttt{1}，又歸零。 結
+論是「不含」，可是 \texttt{1112} 的後三個字就是 \texttt{112}。 問題出在第三個字
+對不上時：剛讀過的 \texttt{11} 本身又是 \texttt{112} 的開頭，應該回到 $j = 2$，
+不是 $1$。
+
+\subsection{狀態該記什麼}
+
+正確的狀態是：\textbf{目前讀到的字串，最長的一段結尾，同時是 $P$ 的開頭，長度
+是多少}。 記成 $j$，$0 \le j \le |P|$；$j = |P|$ 表示 $P$ 已經出現。 剛才的例
+子：\texttt{1}、\texttt{11}、\texttt{111}、\texttt{1112} 的 $j$ 依序是
+$1, 2, 2, 3$，在最後一個字發現 \texttt{112}。
+
+狀態從 $j$ 讀到數字 $c$ 會變成多少，記成 $\mathrm{nxt}(j, c)$。 它只和 $P$ 的
+前 $j$ 個字、以及 $c$ 有關，和更前面讀過什麼無關（理由見下面的框）。 所以可以
+事先把 $|P| \times 10$ 個值算好：令 $t$ 是「$P$ 的前 $j$ 個字接上 $c$」，從長
+到短試 $t$ 的每一段結尾，第一個等於 $P$ 開頭的長度就是答案。 $P$ 很短時，這樣
+直接比對就夠快，例如 $|P| \le 5$ 時全部只要幾百次字串比較。 $P =$ \texttt{112}
+的表：
+
+\begin{center}
+\begin{tabular}{cccc}
+\toprule
+$j$（已對上） & 讀到 \texttt{1} & 讀到 \texttt{2} & 讀到其他數字 \\
+\midrule
+$0$（空） & $1$ & $0$ & $0$ \\
+$1$（\texttt{1}） & $2$ & $0$ & $0$ \\
+$2$（\texttt{11}） & $2$ & $3$（出現 $P$） & $0$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+$j = 2$ 讀到 \texttt{1}，$t = $ \texttt{111}，長度 $3$ 的結尾 \texttt{111} 不
+是 \texttt{112}，長度 $2$ 的結尾 \texttt{11} 是 \texttt{112} 的開頭，所以是
+$2$。 這一格就是剛才那個錯誤做法填成 $1$ 的地方。
+
+這樣一張表，加上「從哪個狀態開始、到哪個狀態算失敗」，叫做\textbf{自動機}
+（automaton）：一個有限的狀態集合，每讀一個字元，照表換到下一個狀態。 數位 DP
+的狀態只要多記一個 $j$，轉移時查 $\mathrm{nxt}$ 表，走到 $|P|$ 的就不要了。
+
+\begin{whybox}[為什麼只看 $P$ 的前 $j$ 個字接上 $c$ 就夠]
+設讀過的字串是 $u$，它最長的「同時是 $P$ 開頭的結尾」長度是 $j$。 現在讀到 $c$，
+要找 $uc$ 最長的同樣性質的結尾，設長度是 $\ell \ge 1$。 這一段去掉最後的 $c$，
+是 $u$ 的一段結尾，長度 $\ell - 1$，而且是 $P$ 的開頭。 照 $j$ 的定義，
+$\ell - 1 \le j$，所以這一段整個落在「$u$ 的最後 $j$ 個字接上 $c$」裡面。
+$u$ 的最後 $j$ 個字就是 $P$ 的前 $j$ 個字，因此只要在「$P$ 的前 $j$ 個字接上
+$c$」裡找，不會漏掉。
+\end{whybox}
+
+這張表有更快的建法，叫做 KMP 的失敗函數，可以在 $O(|P|)$ 的時間內算出每個 $j$
+退回到哪裡，$P$ 很長時才需要；《C++ 演算法解題 3》講字串時會完整介紹。 這一章
+的題目 $P$ 都很短，直接比對就好，重點是想清楚狀態的意思。
+
+同一個想法也可以處理「必須含有 $P$」：含有 $P$ 的個數，等於全部的個數減掉不含
+$P$ 的個數；或者讓走到 $|P|$ 的狀態留在 $|P|$，最後只數停在 $|P|$ 的。
+
+\section{第 \texorpdfstring{$K$}{K} 個數：沿著位數往下走}
+\label{sec:dg-kth}
+
+章首的第二個問題：第 $2526$ 位會員拿到幾號？ 可用的號碼由小到大是
+$1, 2, 3, 5, \ldots$，要找第 $K$ 個。
+
+一個方法是第 1 本第~3~章的對答案二分搜：「$1$ 到 $x$ 有幾個可用號碼」隨 $x$
+不會變小，找最小的 $x$ 讓個數 $\ge K$。 每次判斷做一次第~\ref{sec:dg-prefix}~
+節的計數，大約 $60$ 次就找到了。 只問一次時這樣很好；題目一次問 $10^5$ 個 $K$
+時，就多了 $60$ 倍的工作。
+
+更直接的方法是把第~\ref{sec:dg-prefix}~節的分塊倒過來用。 同樣位數的號碼，數
+值的大小和字串的大小順序相同，所以：
+
+\begin{enumerate}
+\item \textbf{先決定位數。} 一位數的可用號碼有 $8$ 個（$1$ 到 $9$，去掉 $4$），
+兩位數有 $8 \times 9 = 72$ 個，三位數 $8 \times 81 = 648$ 個，四位數
+$8 \times 729 = 5832$ 個。 $K = 2526$ 先扣掉前三種，剩
+$2526 - 8 - 72 - 648 = 1798$，答案是第 $1798$ 個四位數。
+\item \textbf{再從最高位往下，每一位由小到大試。} 第一位填 $1$ 的四位數有
+$9^3 = 729$ 個可用的。 $1798 > 729$，表示答案不在這一塊，跳過整塊，剩
+$1069$；第一位填 $2$ 也是 $729$ 個，跳過，剩 $340$；第一位填 $3$ 有 $729$ 個，
+$340 \le 729$，答案在這一塊裡，第一位是 $3$。 接著在這一塊裡用同樣的方法決定
+第二位。
+\end{enumerate}
+
+\begin{center}
+\begin{tabular}{cllc}
+\toprule
+決定第幾位 & 依序試的數字和那一塊的個數 & 停在 & 剩下的 $K$ \\
+\midrule
+第 1 位 & $1$：$729$、$2$：$729$、$3$：$729$ & $3$ & $1798 \to 340$ \\
+第 2 位 & $0$ 到 $3$ 各 $81$、$4$ 跳過、$5$：$81$ & $5$ & $340 \to 16$ \\
+第 3 位 & $0$：$9$、$1$：$9$ & $1$ & $16 \to 7$ \\
+第 4 位 & $0$ 到 $3$ 各 $1$、$4$ 跳過、$5$、$6$ 各 $1$、$7$：$1$ & $7$ & $7 \to 1$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+答案是 $3517$，和第~\ref{sec:dg-prefix}~節「$3517$ 以內有 $2526$ 張」對得起
+來。 每一步需要的都是「從某個狀態出發、後面還有 $r$ 位自由，有幾種填法」，正
+好是第~\ref{sec:dg-table}~小節那種和 $N$ 無關的表。 表建一次，每個 $K$ 只要
+$O(10 \times \text{位數})$。
+
+決定第一位時從 $1$ 開始試，不從 $0$ 開始：位數已經固定，第一位是 $0$ 的其實是
+比較短的數，已經在第一步扣掉了。
+
+\subsection{例題：跳過不吉利字串的第 \texorpdfstring{$K$}{K} 個號碼}
+\label{sec:dg-ex-skip}
+
+\textbf{題意}（\akiref{the-k-th-ticket-without-the-unlucky-string}{跳過不吉利字串的第 K 個號碼}）
+
+\begin{itemize}
+\item 飲料店的號碼牌不使用十進位寫法（沒有前導零）裡出現字串 $P$ 的號碼，$P$ 以
+連續的一段出現就不行。 $P$ 由 $1$ 到 $5$ 個數字組成，可能以 \texttt{0} 開頭。
+\item 可用的號碼由小到大發給客人。 有 $Q$ 筆詢問，每筆給 $K$，回答第 $K$ 小的
+可用正整數。
+\item $Q \le 10^5$，$K \le 10^{15}$，答案一定小於 $10^{17}$。
+\end{itemize}
+
+例如 $P =$ \texttt{13}：$1$ 到 $12$ 都可以用，$13$ 跳過，第 $13$ 位拿到 $14$；
+$1$ 到 $101$ 之中只跳過了 $13$，所以第 $100$ 位拿到 $101$。 $P =$ \texttt{05}
+時，$5$ 的寫法是 \texttt{5}，不是 \texttt{05}，可以用；$105$ 不能用。
+
+\textbf{想法}
+
+暴力解從 $1$ 往上數，每個號碼檢查一次。 $K$ 到 $10^{15}$，數不完。 前兩節的東
+西合起來就是這題：狀態是第~\ref{sec:dg-automaton}~節的 $j$，找第 $K$ 個用這一
+節的走法。
+
+\begin{itemize}
+\item 先建 $\mathrm{nxt}(j, c)$，$0 \le j < |P|$。
+\item 再建 $\mathrm{ways}(r, j)$ ＝ 目前對上 $j$ 個字，後面再接 $r$ 個數字（每個
+$0$ 到 $9$），一路都沒有讓 $P$ 出現的接法數。 $\mathrm{ways}(0, j) = 1$；
+$\mathrm{ways}(r, j)$ 是所有 $\mathrm{nxt}(j, c) < |P|$ 的
+$\mathrm{ways}(r - 1, \mathrm{nxt}(j, c))$ 加起來。
+\item 每筆詢問：位數 $\ell$ 的可用號碼有 $\sum_{d=1}^{9}
+\mathrm{ways}(\ell - 1, \mathrm{nxt}(0, d))$ 個（只加 $\mathrm{nxt}(0, d) <
+|P|$ 的），從 $\ell = 1$ 開始扣，決定位數；再一位一位試，填 $d$ 那一塊的大小是
+$\mathrm{ways}(\text{剩下的位數}, \mathrm{nxt}(j, d))$。
+\end{itemize}
+
+前導零在這題不會造成麻煩：位數先固定，第一位從 $1$ 開始，自動機只讀到真的寫出
+來的數字。 如果把號碼補成固定長度再讓自動機讀，$P =$ \texttt{05} 時 $5$ 會被
+看成 \texttt{\ldots 05} 而跳過，就錯了。
+
+答案小於 $10^{17}$，最多 $17$ 位，所以 $\mathrm{ways}$ 只要到 $r = 16$，最大
+不超過 $10^{16}$。
+
+如果改用二分搜，答案小於 $10^{17}$，每筆詢問要做大約 $57$ 次計數，每次沿著 $N$
+走大約 $17 \times 10$ 步，$Q = 10^5$ 時大約 $10^9$ 步，比直接走多了幾十倍。
+
+同樣的模型也出現在別的地方：電話號碼、車牌、票券流水號跳過特定字串，以及把一
+組有限制的編號「依序排好」之後找第幾個。
+
+\textbf{程式}
+
+\begin{example}[label=ex:dg-skip]{cpp}{(skip.cpp) 跳過不吉利字串的第 K 個號碼}
+#include <iostream>
+#include <string>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    string P;
+    int q;
+    cin >> P >> q;
+    int m = P.size();
+
+    // nxt[j][c]：已經對上 P 的前 j 個字，再讀到數字 c 之後
+    // 對上幾個。 做法：t = P 的前 j 個字接上 c，
+    // 找 t 最長的、同時是 P 開頭的結尾。
+    int nxt[6][10];
+    for (int j = 0; j < m; j++) {
+        for (int c = 0; c <= 9; c++) {
+            string t = P.substr(0, j) + char('0' + c);
+            int len = t.size();
+            while (len > 0 &&
+                   t.substr(t.size() - len) != P.substr(0, len)) {
+                len--;
+            }
+            nxt[j][c] = len;           // len == m 表示 P 出現了
+        }
+    }
+
+    // ways[r][j]：目前對上 j 個字，後面再接 r 個數字
+    // （0 到 9 都可以），一路都沒有讓 P 出現的接法數
+    long long ways[17][6];
+    for (int j = 0; j < m; j++) {
+        ways[0][j] = 1;
+    }
+    for (int r = 1; r <= 16; r++) {
+        for (int j = 0; j < m; j++) {
+            ways[r][j] = 0;
+            for (int c = 0; c <= 9; c++) {
+                if (nxt[j][c] < m) {
+                    ways[r][j] += ways[r - 1][nxt[j][c]];
+                }
+            }
+        }
+    }
+
+    while (q--) {
+        long long K;
+        cin >> K;
+        // 第一步：決定位數。 len 位的可用號碼，第一位是 1 到 9。
+        int len = 1;
+        while (true) {
+            long long block = 0;
+            for (int d = 1; d <= 9; d++) {
+                if (nxt[0][d] < m) {
+                    block += ways[len - 1][nxt[0][d]];
+                }
+            }
+            if (K <= block) {
+                break;
+            }
+            K -= block;                // 整個 len 位都跳過
+            len++;
+        }
+        // 第二步：從最高位開始，每一位由小到大試
+        string ans;
+        int j = 0;
+        for (int pos = 0; pos < len; pos++) {
+            for (int d = (pos == 0 ? 1 : 0); d <= 9; d++) {
+                if (nxt[j][d] == m) {
+                    continue;          // 填 d 就出現 P，整塊不能用
+                }
+                long long block = ways[len - 1 - pos][nxt[j][d]];
+                if (K <= block) {      // 答案在這一塊裡
+                    ans += char('0' + d);
+                    j = nxt[j][d];
+                    break;
+                }
+                K -= block;            // 跳過這一塊
+            }
+        }
+        cout << ans << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+112 \\
+3 \\
+111 \\
+112 \\
+1111 \\
+}{
+111 \\
+113 \\
+1113 \\
+}
+
+範例的 $P$ 是 \texttt{112}。 $1$ 到 $111$ 都可以用；$112$ 跳過，所以第 $112$
+個是 $113$；$1$ 到 $1113$ 之中跳過了 $112$ 和 $1112$，第 $1111$ 個是 $1113$。
+\texttt{1112} 正是第~\ref{sec:dg-automaton}~節那個例子，表裡 $\mathrm{nxt}(2,
+\texttt{1}) = 2$ 這一格讓程式跳過了它。
+
+\begin{itemize}
+\item \texttt{t.substr(t.size() - len)} 是 $t$ 的最後 \texttt{len} 個字，
+\texttt{P.substr(0, len)} 是 $P$ 的前 \texttt{len} 個字。 \texttt{len} 從
+$t$ 的長度往下試，第一個相等的就是最長的。
+\item 這題輸出很多行，用 \texttt{'\textbackslash n'} 而不是 \texttt{endl}，
+並關掉和 C 的同步（第 1 本第~1~章），不然 $10^5$ 行的輸出會慢很多。
+\item 決定位數的迴圈裡，\texttt{block} 是「剛好 \texttt{len} 位的可用號碼」。
+題目保證答案小於 $10^{17}$，所以 \texttt{len} 不會超過 $17$，
+\texttt{ways[len - 1]} 不會越界。
+\end{itemize}
+
+\textbf{複雜度}
+
+建 $\mathrm{nxt}$ 是 $|P| \times 10$ 格，每格最多 $|P| + 1$ 次長度 $\le |P| + 1$
+的字串比較；建 $\mathrm{ways}$ 是 $16 \times |P| \times 10$。 每筆詢問決定位數
+最多 $17 \times 9$ 步，逐位最多 $17 \times 10$ 步，$Q = 10^5$ 時總共大約
+$3 \times 10^7$ 步。 最大的測試資料在本書測試的環境下約 $0.02$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{對不上就歸零}：$\mathrm{nxt}$ 寫成「等於 $P$ 的下一個字就加一，否
+則看是不是 $P$ 的第一個字」。 範例的輸入第三行會印出 \texttt{1112}，它含有
+\texttt{112}。 $P$ 只有一個字、或 $P$ 的開頭和結尾沒有重疊（例如
+\texttt{13}）時這樣寫不會錯，所以只用 \texttt{13} 測試會以為是對的。
+\item \textbf{第一位從 $0$ 開始試}：決定位數之後，\texttt{d} 一律從 $0$ 開始。
+第一位填 $0$ 的那一塊其實是比較短的號碼，已經扣過一次，又被算了一次。 範例的
+輸入印出 \texttt{011}、\texttt{012}、\texttt{0113}。
+\item \textbf{用 \texttt{int}}：$K$ 到 $10^{15}$，\texttt{ways} 到 $10^{16}$，都
+要 \texttt{long long}。
+\end{itemize}
+
+\section{兩個數一起填}
+\label{sec:dg-pairs}
+
+有些題目數的是數對：$0 \le x \le A$、$0 \le y \le B$，$x$ 和 $y$ 對齊之後每一
+位要滿足某個關係，例如「直式加法每一位都不進位」：每一位上 $x$ 的數字加 $y$ 的
+數字都不超過 $9$。
+
+做法是把 $x$、$y$ 都補到同樣的長度（$A$、$B$ 之中比較長的那個），每一位同時決
+定兩個數字 $(a, b)$，一共最多 $100$ 種組合，只留下滿足關係的。 上界有兩個，
+\textbf{貼著上界的旗標也要兩個}：$x$ 是否還貼著 $A$、$y$ 是否還貼著 $B$，各自
+照第~\ref{sec:dg-skeleton}~節的規則更新，合起來 $4$ 種狀態。
+
+只用一個旗標會錯。 假設只記「兩個數是不是都還貼著」，其中一個先變小就當作兩個
+都自由了。 $A = B = 25$ 時，十位填 $(1, 2)$：$x$ 已經比 $25$ 小，$y$ 還貼著
+$25$。 只有一個旗標的話，個位就讓 $y$ 填到 $9$，$x = 10$、$y = 29$ 也被算進
+去（$1 + 2$、$0 + 9$ 都不進位），可是 $29 > B$。
+
+前導零要不要處理，看補上去的 $0$ 會不會影響關係。 不進位的條件裡，兩邊都補
+$0$ 時是 $0 + 0 \le 9$，一定成立；一邊補 $0$ 時也只是 $0$ 加上另一邊的數字，
+和真的直式加法一樣。 所以補 $0$ 剛好就是直式加法的對齊方式，不需要
+$\mathit{started}$。 換成別的關係時，要像第~\ref{sec:dg-started}~節那樣先問
+一次：補上去的 $0$ 會不會被當成真的數字？
+
+還有一類題目，條件是從右往左傳的，例如加法的進位：個位進位會影響十位，十位又影
+響百位。 這和「從最高位往右填、用 $\mathit{tight}$ 比大小」的方向相反，直接套
+用骨架寫不出轉移。 遇到這種題目，先想清楚兩個方向要怎麼接起來，再決定狀態。
+
+\section{溢位與很長的數}
+\label{sec:dg-overflow}
+
+數位 DP 的題目，上界常常就是 \texttt{long long} 附近，數字的大小要先估好：
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+量 & 大小 \\
+\midrule
+\texttt{long long} 的最大值 & 大約 $9.2 \times 10^{18}$ \\
+\texttt{unsigned long long} 的最大值 & 大約 $1.8 \times 10^{19}$ \\
+$10^{18}$ 的位數 & $19$（陣列開 $20$） \\
+$0$ 到 $10^{18}$ 符合條件的「個數」 & 最多 $10^{18} + 1$，\texttt{long long} 裝得下 \\
+$1$ 到 $10^{18}$ 的數字和加總 & 大約 $8.1 \times 10^{19}$，兩種都裝不下 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+\item \textbf{個數}：只要上界不超過 $10^{18}$，個數就不會超過 $10^{18} + 1$，用
+\texttt{long long} 就好。 要小心的是中間的表：像第~\ref{sec:dg-table}~小節，
+多算一列 $r = 19$，那一列的值就可能到 $10^{19}$。
+\item \textbf{總和}：每個數的量乘上 $10^{18}$ 個數，很容易超過。 先估最大值：
+$1$ 到 $10^{18}$ 的數字和，平均每個數大約 $81$，總和就超過了兩種型別。 這時題目通常會要求輸出除以某個數的餘數，或者要用
+\texttt{\_\_int128}（g++ 提供的 $128$ 位元整數，大約到 $1.7 \times 10^{38}$）。
+\texttt{\_\_int128} 不能直接用 \texttt{cin}、\texttt{cout}，輸出要自己一位一位
+印：
+\begin{code}{cpp}{印出非負的 \_\_int128}
+void print128(__int128 x) {     // x >= 0
+    if (x >= 10) {
+        print128(x / 10);
+    }
+    cout << char('0' + x % 10);
+}
+\end{code}
+\item \textbf{無號整數和 $L - 1$}：用 \texttt{unsigned long long} 存 $L$，
+$L = 0$ 時 $L - 1$ 會繞回 $2^{64} - 1$，見第
+~\ref{sec:dg-ex-zeros}~小節的常見錯誤。 先判斷 $L = 0$，或者全部用有號的
+\texttt{long long}。
+\end{itemize}
+
+上界大到任何整數型別都存不下時，例如幾萬位的數字，就直接把它當成字串，DP 照
+著字串一位一位走，程式本來就只用到 \texttt{s[pos]}。 要注意三件事：
+
+\begin{itemize}
+\item 位數一多，遞迴的深度就是位數，記憶化的表也要開到位數那麼大。 這時改用
+第~\ref{sec:dg-table}~小節的填表寫法比較穩：先建「剩 $r$ 位自由」的表，再沿著
+字串走一次。
+\item $L - 1$ 要在字串上做減法：從最後一位往前，遇到 $0$ 就變成 $9$ 繼續借，
+遇到第一個非零的減一。 $1000$ 減一是 $999$，最前面變成 $0$ 時要拿掉。
+\begin{code}{cpp}{字串減一}
+// s 是正整數的十進位寫法，沒有前導零
+string minusOne(string s) {
+    int i = s.size() - 1;
+    while (s[i] == '0') {        // 借位：結尾的 0 都變成 9
+        s[i] = '9';
+        i--;
+    }
+    s[i]--;
+    if (s.size() > 1 && s[0] == '0') {
+        s.erase(0, 1);           // 1000 減 1 是 999，少一位
+    }
+    return s;
+}
+\end{code}
+也可以不做減法，改算 $f(R) - f(L)$，再單獨檢查 $L$ 本身符不符合，符合就加一。
+\item 答案要取餘數時，$f(R) - f(L - 1)$ 可能是負的（兩個餘數相減），要先加上模
+數再取一次餘數。
+\end{itemize}
+
+\section{什麼時候用數位 DP}
+\label{sec:dg-when}
+
+\begin{itemize}
+\item 題目問「$L$ 到 $R$ 之中有幾個數符合某個條件」，或是「所有數的某個量加起來」，
+而 $R$ 到 $10^{18}$，甚至是一個很長的字串。 這麼大的範圍不可能一個一個看。
+\item 條件可以\textbf{一位一位檢查}：由左往右讀數字時，只要記住一點點東西（餘
+數、前一位、次數、對上 $P$ 的長度），讀完就能判斷。 先把這「一點點東西」用一句
+話寫出來，就是狀態。
+\item 問「第 $K$ 個符合條件的數」：建一張和上界無關的表，沿著位數往下走；只問
+一次的話，二分搜加計數也可以。
+\end{itemize}
+
+看起來像、其實不適合的情況：
+
+\begin{itemize}
+\item 條件要看整個數的「值」而不是數字，例如「$x$ 是質數」「$x$ 是完全平方數」。
+這種條件一位一位讀的時候記不住，數位 DP 用不上。
+\item 範圍不大（例如 $R - L \le 10^6$），每個數直接檢查就好，不用冒險。 這個暴
+力解也正好拿來對拍。
+\item 條件和「每一位」有關，但要記的東西會隨位數暴增，例如「所有數字都不相同」
+要記用過哪些數字，是 $2^{10}$ 種集合。 這還做得到，狀態就是第~4~章那種「一個小
+集合」；集合再大就不行了。
+\end{itemize}
+
+\begin{apcsnote}
+APCS 實作題由程式自動評分，只比對輸出。 數位 DP 的錯誤大多在邊界：前導零、整
+數 $0$、$L = 0$、$N$ 本身。 範例的輸入常常剛好避開這些情況，本章好幾個錯誤寫
+法都能通過範例。 寫完之後，用「一個一個檢查」的暴力解，在 $R \le 2000$ 的所有
+$(L, R)$ 上比對，比只測範例可靠得多。
+\end{apcsnote}
+
+\section{本章常見錯誤}
+\label{sec:dg-pitfalls}
+
+\begin{center}
+\begin{tabular}{p{0.2\linewidth}p{0.46\linewidth}p{0.22\linewidth}}
+\toprule
+錯誤 & 例子 & 見 \\
+\midrule
+前導零當成數字 & 數 $0$ 時把 $7$ 看成 \texttt{007}；上坡時把 $5$ 看成 \texttt{05}；
+補成固定長度再讓自動機讀 &
+第~\ref{sec:dg-ex-zeros}、\ref{sec:dg-ex-ascent}、\ref{sec:dg-ex-skip}~節 \\
+整數 $0$ 和 $L = 0$ & 整數 $0$ 寫作 \texttt{0}；$f(-1)$ 沒有判斷；無號整數的
+$L - 1$ & 第~\ref{sec:dg-ex-zeros}~節 \\
+記錯狀態 & 貼著上界或還沒開始的狀態也記憶化；記憶化用 \texttt{pos} 當索引，位數
+變了沒清空 & 第~\ref{sec:dg-memo}、\ref{sec:dg-ex-zeros}~節 \\
+狀態少記一樣 & 「連續對上幾個」對不上就歸零；兩個上界共用一個旗標 &
+第~\ref{sec:dg-automaton}、\ref{sec:dg-pairs}~節 \\
+總和只加一 & 新產生的量沒有乘上後面的填法數 & 第~\ref{sec:dg-ex-ascent}~節 \\
+區間端點 & $f(R) - f(L)$ 漏了 $L$；只算比 $N$ 小的，忘了 $N$ 本身 &
+第~\ref{sec:dg-prefix}、\ref{sec:dg-ex-ascent}~節 \\
+溢位 & 表多算一列到 $10^{19}$；總和超過 \texttt{long long}；取餘數相減變負數 &
+第~\ref{sec:dg-table}、\ref{sec:dg-overflow}~節 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{本章練習}
+\label{sec:dg-exercises}
+
+\begin{drills}[label=drills:dg]
+\item 不寫程式，照第~\ref{sec:dg-prefix}~節的分塊，算出 $1$ 到 $2025$ 之中不含
+$4$ 的數有幾個。 列出每一位加了多少。
+
+\item 範例~\ref{ex:dg-digitsum} 輸入 \texttt{1 347 5} 時：
+\begin{enumerate}
+\item 算 $f(347)$ 的過程中，\texttt{dfs} 被呼叫時 \texttt{tight} 是真的有幾
+次？
+\item 接著算 $f(0)$ 時，有沒有讀到 $f(347)$ 存下來的 \texttt{memo}？ 為什麼？
+\end{enumerate}
+
+\item 有人把範例~\ref{ex:dg-zeros} 的記憶化改成不看 \texttt{tight}：
+\begin{code}{cpp}{練習 3}
+bool useMemo = started;
+\end{code}
+輸入 \texttt{1 20 0} 會印出什麼？ 用圖~\ref{fig:dg-tight-path} 的方式說明錯
+在哪裡。
+
+\item 下面每個條件，寫出數位 DP 除了位置、$\mathit{tight}$ 之外要記的狀態，並
+說明要不要 $\mathit{started}$。
+\begin{enumerate}
+\item 相鄰兩位數字的差都不超過 $2$，例如 $1312$、$5$、$886$。
+\item 至少有一組相鄰的兩位數字相同，例如 $1223$、$100$。
+\item 數字 $7$ 出現的次數是奇數。
+\item 整個數是 $7$ 的倍數，而且數字裡沒有 $7$。
+\end{enumerate}
+
+\item $P =$ \texttt{1213}。
+\begin{enumerate}
+\item 寫出 $\mathrm{nxt}(3, c)$，也就是已經對上 \texttt{121} 時，讀到每個數字之
+後的狀態。
+\item 號碼 \texttt{121213} 含不含 $P$？ 寫出正確的狀態序列，以及「對不上就歸
+零」的寫法會得到什麼結論。
+\end{enumerate}
+
+\item 章首的會員卡（跳過含 $4$ 的號碼），照第~\ref{sec:dg-kth}~節的方法，手算第
+$100$ 位會員拿到的號碼。
+
+\item 計算 $1$ 到 $N$ 的數字和加總，$N \le 10^{18}$。
+\begin{enumerate}
+\item 每個狀態要回傳哪兩個數？ 這一位填 $d$ 時，兩個數各怎麼更新？
+\item 答案可能超過 \texttt{long long} 嗎？ 如果會，有哪些處理方法？
+\end{enumerate}
+\end{drills}
+
+\section{實作練習}
+\label{sec:dg-practice}
+
+下面是 Aki-Judge 上和本章相關的題目，依小節分組。 難度分四階：暖身是直接套用
+本章的骨架；基本要自己想出多記什麼狀態；實戰的題敘比較長，要先把題目轉換成本章
+的形狀；挑戰會和其他技巧合在一起，或需要更進一步的觀察。
+
+\begin{center}
+\begin{tabular}{llc}
+\toprule
+小節 & 題目 & 難度 \\
+\midrule
+骨架與前導零 & \akiref{alternating-parity-ticket-numbers}{奇偶交錯的號碼} & 暖身 \\
+ & \akiref{integers-with-exactly-k-zeros}{恰好 k 個零的整數} & 暖身 \\
+\midrule
+多帶一點資訊 & \akiref{total-climbs-over-all-ticket-numbers}{所有號碼的上坡次數總和} & 基本 \\
+ & \akiref{the-code-hidden-in-the-numbers}{號碼裡藏著的暗號} & 基本 \\
+ & \akiref{run-limits-on-very-long-serial-numbers}{超長流水號的連號限制} & 基本 \\
+ & \akiref{multiples-both-ways}{正讀倒讀都是 K 的倍數} & 實戰 \\
+ & \akiref{how-far-the-digit-stickers-go}{數字貼紙夠貼到幾號} & 實戰 \\
+\midrule
+兩個數一起填 & \akiref{subtraction-without-borrowing}{直式減法不借位的數對} & 實戰 \\
+ & \akiref{carries-when-adding-a-fixed-number}{加上固定數時的進位次數} & 挑戰 \\
+\midrule
+自動機與第 $K$ 個 & \akiref{the-k-th-ticket-without-the-unlucky-string}{跳過不吉利字串的第 K 個號碼} & 挑戰 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+本章的三題例題也在 Aki-Judge 上，讀完各節之後可以先自己寫一次再對照。 這一章
+的題單還會再增加。
+
+\section{讀完你應該會}
+\label{sec:dg-checklist}
+
+\begin{itemize}
+\item 把「$L$ 到 $R$ 之中有幾個」寫成 $f(R) - f(L - 1)$，並先處理 $L = 0$。
+\item 寫出數位 DP 的骨架：從最高位往下填，用 $\mathit{tight}$ 限制這一位的上限，
+只記憶化不貼上界的狀態，並說得出為什麼。
+\item 看到條件會被前導零影響時，加上 $\mathit{started}$，並單獨判斷整數 $0$。
+\item 替一個條件設計要多記的狀態（餘數、前一位、次數、對上 $P$ 的長度），求總
+和時讓每個狀態回傳（個數，總和）兩個數。
+\item 建一張和上界無關的「剩 $r$ 位自由」的表，用它沿著位數往下走，找出第 $K$
+個符合條件的數。
+\end{itemize}
+
+\textbf{延伸閱讀}（書末會整理完整的參考資料）
+
+\begin{itemize}
+\item Steven Halim 等，\textit{Competitive Programming 4}，Book 2 的 6.3.3 節：
+用一題例題示範怎麼一步一步把數位 DP 的狀態補齊，並附一組練習題。
+\item 劉汝佳，《算法競賽入門經典》，第 2 版，10.4 節例題 10-22：統計一段區間裡每
+個數字各出現幾次，用的也是把 $0$ 到 $n$ 分成幾塊、每塊後面自由的想法。
+\end{itemize}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item $1480$ 個。 \texttt{2025} 由左往右：千位 $2$，可以填 $0$、$1$，各
+$9^3 = 729$，共 $1458$；百位 $0$，沒有比它小的數字，不加；十位 $2$，可以填
+$0$、$1$，各 $9$，共 $18$；個位 $5$，可以填 $0$ 到 $3$（$4$ 跳過），共 $4$；
+$2025$ 本身不含 $4$，加 $1$。 $1458 + 18 + 4 + 1 = 1481$ 是 $0$ 到 $2025$ 的
+個數，扣掉 $0$ 是 $1480$。
+
+\item
+\begin{enumerate}
+\item $4$ 次：\texttt{pos} 是 $0$、$1$、$2$、$3$ 時各一次，沿著
+\texttt{3}、\texttt{4}、\texttt{7} 走到底。 貼著上界的路只有一條。
+\item 沒有。 $f(0)$ 的字串是 \texttt{"0"}，只有一位，\texttt{dfs(0, 0, true)}
+的 \texttt{up} 是 $0$，只填 $0$ 而且仍然貼著，直接走到結尾，從頭到尾沒有不貼上
+界的狀態，所以不會讀 \texttt{memo}。 即使讀了，存的值也和 $N$ 無關，一樣是對
+的。
+\end{enumerate}
+
+\item 印出 \texttt{27}，正確答案是 $18$。 $f(20)$ 的第一位試 $0$、$1$、$2$：
+填 $1$ 時走到「剩一位、已開始、$0$ 個 $0$、不貼」，算出 $9$（$11$ 到 $19$），
+存進 \texttt{memo[1][0]}。 填 $2$ 時走到「剩一位、已開始、$0$ 個 $0$、貼著」，
+它的第二位只能填 $0$，答案應該是 $0$（$20$ 有一個 $0$）；可是改過的程式也去讀
+\texttt{memo[1][0]}，拿到 $9$。 多算的 $9$ 就是 $21$ 到 $29$。 在圖
+~\ref{fig:dg-tight-path} 上，貼著上界的那排節點只能往下走到 $N$ 的數字為止，不
+能借用旁邊整塊自由的答案。
+
+\item
+\begin{enumerate}
+\item 前一位數字（$10$ 種）。 需要 $\mathit{started}$：不處理的話，$5$ 被看成
+\texttt{05}，$0$ 和 $5$ 差 $5$，會被誤判成不符合。 開始之前沒有「前一位」，第
+一個非零數字不用和任何數字比。
+\item 前一位數字，以及「是否已經出現過相鄰相同」（真假）。 需要
+$\mathit{started}$：不處理的話，\texttt{005} 的兩個前導零會被當成相鄰相同。
+\item 目前 $7$ 出現的次數的奇偶（$2$ 種）。 不需要 $\mathit{started}$，前導零
+不是 $7$。
+\item 整個數除以 $7$ 的餘數（$7$ 種），轉移時跳過數字 $7$。 不需要
+$\mathit{started}$：前導零不是 $7$，而且 $10 \cdot 0 + 0 = 0$，不改變餘數。
+\end{enumerate}
+
+\item
+\begin{enumerate}
+\item $t$ 是 \texttt{121} 接上 $c$。 $c = 3$：\texttt{1213}，就是 $P$，是
+$4$。 $c = 2$：\texttt{1212} 的結尾 \texttt{12} 是 $P$ 的開頭，是 $2$。
+$c = 1$：\texttt{1211} 的結尾 \texttt{1}，是 $1$。 其他數字都是 $0$。
+\item 含有，最後四個字就是 \texttt{1213}。 正確的狀態依序是 $1, 2, 3, 2, 3, 4$，
+讀到最後一個字時到達 $4$。 「對不上就歸零」的寫法在第四個字 \texttt{2}（對上
+\texttt{121} 之後，期待 \texttt{3}）把狀態變成 $0$，之後是 $1, 0$，結論是不含。
+它漏掉的是 \texttt{121} 後面的 \texttt{12} 本身又是 $P$ 的開頭。
+\end{enumerate}
+
+\item $121$。 一位數 $8$ 個、兩位數 $72$ 個，扣掉之後是第 $20$ 個三位數。 第一
+位填 $1$ 的那一塊有 $81$ 個，$20 \le 81$，第一位是 $1$。 第二位填 $0$ 有 $9$
+個，跳過，剩 $11$；填 $1$ 有 $9$ 個，跳過，剩 $2$；填 $2$ 有 $9$ 個，停下。 第
+三位填 $0$ 有 $1$ 個，跳過，剩 $1$；填 $1$，停下。 可以用範例~\ref{ex:dg-skip}
+輸入 $P =$ \texttt{4}、$K = 100$ 檢查。
+
+\item
+\begin{enumerate}
+\item 回傳（後面有幾種填法 $\mathit{cnt}$，這些填法在後面的數字和加總
+$\mathit{sum}$）。 填 $d$ 之後的狀態回傳 $(\mathit{cnt}', \mathit{sum}')$，則
+$\mathit{cnt} \mathrel{+}= \mathit{cnt}'$，$\mathit{sum} \mathrel{+}=
+\mathit{sum}' + d \cdot \mathit{cnt}'$。 前導零加的是 $0$，不需要
+$\mathit{started}$。
+\item 會。 $N = 10^{18}$ 時，$0$ 到 $10^{18} - 1$ 每一位上 $0$ 到 $9$ 各出現
+$10^{17}$ 次，$18$ 位共 $18 \times 45 \times 10^{17} = 8.1 \times 10^{19}$，
+超過 \texttt{long long} 也超過 \texttt{unsigned long long}。 可以用
+\texttt{\_\_int128} 存並自己寫輸出，或者題目要求輸出餘數時，每一步都取餘數（
+$d \cdot \mathit{cnt}'$ 先把 $\mathit{cnt}'$ 取餘數再乘）。
+\end{enumerate}
+\end{enumerate}
