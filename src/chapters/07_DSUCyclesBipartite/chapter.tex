@@ -1,0 +1,1485 @@
+\chapter{並查集、環與二分圖}
+\label{ch:dsu}
+
+% 本章的圖共用的樣式（點、強調的點、第二焦點、無向邊、有向邊）
+\tikzset{
+    dsv/.style={circle, draw=black!60, thick, minimum size=0.72cm, inner sep=0pt, font=\small},
+    dsvhl/.style={dsv, draw=memStroke, fill=memFill},
+    dsvalt/.style={dsv, draw=optStroke, fill=optFill},
+    dsvblue/.style={dsv, draw=coreStroke, fill=coreFill},
+    dse/.style={thick, draw=black!60},
+    dsehl/.style={very thick, draw=memStroke},
+    dsebad/.style={very thick, draw=optStroke, dashed},
+    dsd/.style={-{Stealth[length=2.2mm]}, thick, draw=black!60, shorten >=1pt},
+    dsdhl/.style={-{Stealth[length=2.2mm]}, very thick, draw=memStroke, shorten >=1pt},
+    dslbl/.style={font=\scriptsize, text=black!60},
+}
+
+颱風過後，山區六個村子之間的道路全部中斷。 工程隊每天修好一條路，修的順序
+畫在下圖，邊上的數字是第幾天修好。 每修好一條，鄉公所都想立刻知道：現在全區
+分成幾塊彼此不通的區域？ 往下讀之前，先照順序一天一天算，並且留意第 5 天和
+第 7 天修好的路有什麼不一樣。
+
+\begin{center}
+\begin{tikzpicture}[x=1.6cm, y=1.2cm]
+\node[dsv] (1) at (0,1) {1};
+\node[dsv] (2) at (1,1) {2};
+\node[dsv] (3) at (2,1) {3};
+\node[dsv] (4) at (1,0) {4};
+\node[dsv] (5) at (2,0) {5};
+\node[dsv] (6) at (3,0.5) {6};
+\draw[dse] (1) -- node[above, dslbl] {1} (2);
+\draw[dse] (3) -- node[right, dslbl, pos=0.4] {2} (4);
+\draw[dse] (2) -- node[above, dslbl] {3} (3);
+\draw[dse] (5) -- node[below right, dslbl] {4} (6);
+\draw[dsehl] (1) -- node[below left, dslbl] {5} (4);
+\draw[dse] (4) -- node[below, dslbl] {6} (5);
+\draw[dsehl] (6) -- node[above right, dslbl] {7} (3);
+\end{tikzpicture}
+\diagcaption{六個村子和七條道路，邊上的數字是修好的日子。 橘色的兩條修好時，
+兩頭的村子早就可以繞路互通。}
+\label{fig:dsu-villages}
+\end{center}
+
+前四天每修好一條，區域就少一塊：$6$ 塊變 $5$、$4$、$3$、$2$。 第 5 天修好 1--4
+時，1 和 4 早就可以經過 2、3 繞過去，區域數不變，這條路只是讓圖上多了一個繞
+圈的路線。 第 6 天剩下一塊，第 7 天的 6--3 也是繞圈的路。
+
+六個村子用手算很快。 換成 $2 \times 10^5$ 個村子、$2 \times 10^5$ 條路，每修
+一條就用《C++ 演算法解題 1：APCS 實作題核心》（以下簡稱第 1 本）第~11~章的 BFS 重新數一次連通元件，每次 $O(n + m)$，總共大約
+$4 \times 10^{10}$ 步，來不及。 這一章的第一個工具\textbf{並查集}就是為這種
+「邊一條一條加進來，隨時要問誰和誰連通」的情況設計的，每次操作幾乎是常數時間。
+
+上面的問題還藏著第二件事：第 5 天和第 7 天的路讓圖出現了\textbf{環}。 這一章
+接著講怎麼在無向圖和有向圖上找環，然後看兩種形狀特別的圖：能不能把所有點分成
+兩邊、每條邊都跨過兩邊（二分圖）；以及每個點剛好只有一條往外的箭頭（函數圖），
+它和第 1 本第~4~章 4.6 節的週期偵測是同一件事。
+
+這一章用到第 1 本第~11~章的 BFS、DFS 和連通元件，以及第 1 本 11.5 節遞迴太深時改用自己的堆
+疊；第 1 本第~13~章「樹剛好有 $n - 1$ 條邊」；第 1 本第~4~章 4.6 節的 $\rho$ 形狀與週期。
+這些不再重講，用到時會指回去。 語法上只需要 \texttt{vector}、\texttt{pair}
+和 \texttt{queue}。
+
+\section{並查集}
+\label{sec:dsu}
+
+先把問題講清楚。 一開始有 $n$ 個點，每個點自己一群。 接下來有一連串的操作，
+每個操作是下面兩種之一：
+
+\begin{itemize}
+\item \textbf{合併}：把 $a$ 所在的群和 $b$ 所在的群併成一群。
+\item \textbf{查詢}：問 $a$ 和 $b$ 是不是在同一群。
+\end{itemize}
+
+群只會合併、不會拆開。 能做這兩件事的資料結構叫\textbf{並查集}（disjoint set
+union，也叫 union-find）。 「並」是合併，「查」是查詢在哪一群。
+
+\subsection{每群選一個代表}
+
+做法是替每一群選一個\textbf{代表}（representative）。 兩個點在同一群，剛好就
+是它們的代表相同。 要讓「找代表」和「合併」都很快，並查集把每一群存成一棵有
+根樹，根就是代表。 每個點只記一個數 \texttt{parent[x]}：它在樹上的上一層。 根
+的上一層是自己。
+
+\begin{itemize}
+\item \textbf{找代表}（\texttt{find(x)}）：從 $x$ 沿著 \texttt{parent} 一直往上
+走，走到 \texttt{parent[r] == r} 的 $r$，就是代表。
+\item \textbf{合併}（\texttt{unite(a, b)}）：先找出兩邊的代表；相同就表示早已在
+同一群，什麼都不做；不同就把其中一個根接到另一個根底下。
+\end{itemize}
+
+這裡的樹和第 1 本第~13~章的有根樹一樣只記父節點，但它只是程式內部的記錄方式，和題目
+裡的邊沒有關係。 例如圖~\ref{fig:dsu-villages} 裡 1 和 4 有一條路，在並查集的
+樹裡 1 卻不一定接在 4 底下。 唯一要維持的是：同一群的點都在同一棵樹上。
+
+\begin{code}{cpp}{最簡單的並查集}
+vector<int> parent(n + 1);
+for (int i = 1; i <= n; i++) {
+    parent[i] = i;                     // 一開始每個點自己一群
+}
+
+int find(int x) {
+    while (parent[x] != x) {           // 往上走到根
+        x = parent[x];
+    }
+    return x;
+}
+
+void unite(int a, int b) {
+    a = find(a);
+    b = find(b);
+    if (a != b) {
+        parent[a] = b;                 // a 那棵樹接到 b 底下
+    }
+}
+\end{code}
+
+\subsection{樹會變高}
+
+這個版本是對的，但可能很慢。 照 \texttt{unite(1, 2)}、\texttt{unite(2, 3)}、
+\ldots、\texttt{unite(n - 1, n)} 的順序合併：每次 \texttt{a} 本身就是根，
+\texttt{parent[a] = b} 讓舊的根接到新的點底下，最後變成一條
+$1 \to 2 \to 3 \to \cdots \to n$ 的長鏈。 之後每次 \texttt{find(1)} 都要走
+$n - 1$ 步，$n$ 次查詢就是 $O(n^2)$。
+
+問題出在樹的高度。 有兩個互相獨立的改法，一般兩個一起用。
+
+\textbf{改法一：按大小合併}（union by size）。 每個根多記一個數，這一群有幾個
+點。 合併時把\textbf{小的}那群的根接到大的那群的根底下。 一個點的深度要加一，
+只會發生在它所在的群被接到另一個至少一樣大的群底下，所以每加一層，它所在的
+群至少變成兩倍大。 $n$ 個點最多翻倍 $\log_2 n$ 次，任何點的深度都不超過
+$\log_2 n$，$n = 2 \times 10^5$ 時是 $17$。
+
+\textbf{改法二：路徑壓縮}（path compression）。 \texttt{find(x)} 找到根之後，
+把剛才路上經過的每個點都直接改接到根底下。 樹裡誰接在誰下面本來就不重要，只要
+同一群在同一棵樹，所以可以隨便改。 這一次多做了一點事，之後這些點再查代表，
+一步就到。 下圖是第 5 天的 \texttt{find(1)}：1 原本要經過 2 才到根 4，壓縮之
+後直接接在 4 底下。
+
+\begin{center}
+\begin{tikzpicture}[x=1cm, y=1cm]
+\begin{scope}
+\node[font=\small] at (1,2.7) {壓縮前};
+\node[dsv] (4) at (1,2) {4};
+\node[dsvhl] (2) at (0.4,1) {2};
+\node[dsv] (3) at (1.6,1) {3};
+\node[dsvhl] (1) at (0.4,0) {1};
+\draw[dsd] (2) -- (4);
+\draw[dsd] (3) -- (4);
+\draw[dsd] (1) -- (2);
+\node[dsv] (6) at (3,2) {6};
+\node[dsv] (5) at (3,1) {5};
+\draw[dsd] (5) -- (6);
+\end{scope}
+\begin{scope}[xshift=6cm]
+\node[font=\small] at (1,2.7) {壓縮後};
+\node[dsv] (4) at (1,2) {4};
+\node[dsv] (2) at (0.2,1) {2};
+\node[dsv] (3) at (1.8,1) {3};
+\node[dsvhl] (1) at (1,1) {1};
+\draw[dsd] (2) -- (4);
+\draw[dsd] (3) -- (4);
+\draw[dsdhl] (1) -- (4);
+\node[dsv] (6) at (3,2) {6};
+\node[dsv] (5) at (3,1) {5};
+\draw[dsd] (5) -- (6);
+\end{scope}
+\end{tikzpicture}
+\diagcaption{第 4 天結束時並查集裡的兩棵樹（箭頭指向 \texttt{parent}），以及第
+5 天 \texttt{find(1)} 之後。 兩群是 $\{1, 2, 3, 4\}$ 和 $\{5, 6\}$，代表是 4
+和 6。}
+\label{fig:dsu-compress}
+\end{center}
+
+兩個改法各自能省多少？ 用 $8192$ 個點實際數一次，比較兩種合併順序：一種是上面的
+長鏈；另一種是兩兩合併，$1$ 和 $2$、$3$ 和 $4$、\ldots，再把兩個兩人組併成四人組，
+像淘汰賽一樣。 合併完之後，每個點各查 $5$ 次代表。 兩種順序都呼叫了五萬七千多次
+\texttt{find}，下表是總共沿著 \texttt{parent} 走了幾步：
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+合併順序 & 不優化 & 只按大小合併 & 只做路徑壓縮 & 兩個都用 \\
+\midrule
+長鏈 & 167751680 & 49144 & 49145 & 49144 \\
+兩兩合併 & 282596 & 282596 & 61406 & 61406 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+\item \textbf{長鏈}：不優化要走一億六千多萬步。 只要用上任何一個改法，就降到
+五萬步左右，平均每次 \texttt{find} 不到一步。
+\item \textbf{兩兩合併}：每次合併的兩群一樣大，按大小合併幫不上忙，樹高是
+$\log_2 8192 = 13$，平均每次 \texttt{find} 走大約五步。 加上路徑壓縮，第一輪
+查詢就把樹壓平了，後面四輪每次只走一步。
+\end{itemize}
+
+兩個改法一起用時，可以證明 $m$ 次操作的總時間是 $O(m \, \alpha(n))$。
+$\alpha$ 叫\textbf{反阿克曼函數}（inverse Ackermann function），長得非常慢：
+$n$ 就算大到宇宙裡原子的個數，$\alpha(n)$ 也不超過 $4$。 證明很長，這本書不寫；
+寫程式時把每次操作當成常數時間就好。 直覺上可以這樣想：按大小合併讓樹一開始
+就不高，路徑壓縮讓走過的路以後不必再走第二次，貴的那幾次查詢會被之後大量便宜
+的查詢平均掉，和第 1 本第~6~章的攤銷分析是同一種數法。
+
+\subsection{用並查集維護連通元件}
+
+回到章首的修路問題。 下面的程式就是本章之後都會用的並查集寫法：
+
+\begin{itemize}
+\item \texttt{find} 寫成遞迴，\texttt{return parent[x] = find(parent[x]);} 先找
+到根，把根存進 \texttt{parent[x]} 再回傳。 遞迴一層一層回來時，路上每個點都被
+改接到根，這就是路徑壓縮。 因為有按大小合併，樹高不超過 $17$，遞迴不會太深。
+\item \texttt{unite} 回傳有沒有真的合併。 回傳 \texttt{true}：兩群併成一群，
+區域數減一。 回傳 \texttt{false}：兩頭早就連通，區域數不變；這條路和原本就有的
+某條路線合起來，繞成一個環，下一節會再用到。
+\end{itemize}
+
+\begin{example}[label=ex:repair-roads]{cpp}{(roads.cpp) 修好每條路之後還有幾塊區域}
+#include <iostream>
+#include <utility>
+#include <vector>
+using namespace std;
+
+vector<int> parent, sz;
+
+int find(int x) {
+    if (parent[x] == x) {
+        return x;
+    }
+    return parent[x] = find(parent[x]);
+}
+
+// 合併 a、b 所在的兩群；本來就在同一群時回傳 false
+bool unite(int a, int b) {
+    a = find(a);
+    b = find(b);
+    if (a == b) {
+        return false;
+    }
+    if (sz[a] > sz[b]) {
+        swap(a, b);
+    }
+    parent[a] = b;
+    sz[b] += sz[a];
+    return true;
+}
+
+int main() {
+    int n, m;
+    cin >> n >> m;
+    parent.resize(n + 1);
+    sz.assign(n + 1, 1);
+    for (int i = 1; i <= n; i++) {
+        parent[i] = i;
+    }
+    int regions = n;                       // 一開始每一區自成一塊
+    for (int i = 0; i < m; i++) {
+        int a, b;
+        cin >> a >> b;
+        if (unite(a, b)) {
+            regions--;
+            cout << regions << '\n';
+        } else {
+            cout << regions << " loop\n";  // 兩端早就連通：這條路繞成一圈
+        }
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+6 7 \\
+1 2 \\
+3 4 \\
+2 3 \\
+5 6 \\
+1 4 \\
+4 5 \\
+6 3 \\
+}{
+5 \\
+4 \\
+3 \\
+2 \\
+2 loop \\
+1 \\
+1 loop \\
+}
+
+逐天看 \texttt{parent} 的變化。 兩群一樣大時，程式把 \texttt{a} 那一群接到
+\texttt{b} 底下。
+
+\begin{center}
+\begin{tabular}{clll}
+\toprule
+天 & 路 & 發生的事 & \texttt{parent[1..6]} \\
+\midrule
+0 & --- & --- & 1 2 3 4 5 6 \\
+1 & 1--2 & 根 1、2 一樣大，1 接到 2 & 2 2 3 4 5 6 \\
+2 & 3--4 & 3 接到 4 & 2 2 4 4 5 6 \\
+3 & 2--3 & 根是 2 和 4，一樣大，2 接到 4 & 2 4 4 4 5 6 \\
+4 & 5--6 & 5 接到 6 & 2 4 4 4 6 6 \\
+5 & 1--4 & \texttt{find(1)} 走 1、2、4，順便把 1 接到 4；根相同 & 4 4 4 4 6 6 \\
+6 & 4--5 & 根是 4（4 人）和 6（2 人），6 接到 4 & 4 4 4 4 6 4 \\
+7 & 6--3 & 兩邊的根都是 4 & 4 4 4 4 6 4 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{apcsnote}
+並查集的程式很短，不需要背類別或模板。 考試時直接寫範例~\ref{ex:repair-roads} 的
+\texttt{find}、\texttt{unite} 和初始化的迴圈，大約二十行。 只做其中一個改法，
+大多數題目也夠快；兩個都寫最保險。
+\end{apcsnote}
+
+很多題目不只問「同不同群」，還要知道每一群的人數、總和、最大值這類資料。 做法
+都一樣：這些資料只存在根上，合併時把小的那群的資料加到大的那群的根，查詢時先
+\texttt{find} 找到根再讀。 \texttt{sz} 就是這樣維護的，下面的例題再多存一個
+總和。
+
+\subsection{什麼時候用、什麼時候不能用}
+
+\begin{itemize}
+\item 適合：邊一條一條加進來，中間夾著「同不同群」「這群多大」的詢問；或者只
+需要知道連通元件，不必建鄰接串列，邊讀邊 \texttt{unite} 就好（第 1 本第~11~章 11.2
+節說過，並查集只需要一條一條讀邊）。
+\item 不能直接用：會\textbf{刪邊}的題目。 並查集只會合併，拆不開。 如果所有操
+作事先都知道，有時可以倒過來處理，把「刪邊」變成「加邊」，這需要另外的觀察，
+本章練習第~2~題會用到這個想法。
+\item 不能用：要知道兩點之間的路怎麼走、最短要幾步。 並查集只知道在不在同一
+群，不知道路徑，這時用第 1 本第~11~章的 BFS。
+\end{itemize}
+
+\subsection{例題：社團合併與總積分}
+\label{sec:ex-club}
+
+\textbf{題意}（\akiref{club-mergers-and-total-points}{社團合併與總積分}）
+
+\begin{itemize}
+\item 有 $n$ 位學生，學生 $i$ 有積分 $p_i$。 一開始每人自己一個社團。
+\item 依序有 $q$ 個操作。 \texttt{1 a b}：把 $a$ 和 $b$ 所在的社團合併；已經
+同社團（包含 $a = b$）時輸出 \texttt{same}，否則輸出合併後的人數。
+\texttt{2 a}：輸出 $a$ 所在社團的人數和積分總和。
+\item $n, q \le 2 \times 10^5$，$p_i \le 10^9$。
+\end{itemize}
+
+例如積分是 $3, 1, 4, 1, 5$。 合併 1、2 後輸出 \texttt{2}；查學生 2 輸出
+\texttt{2 4}；合併 3、4 輸出 \texttt{2}；再合併 2、1，兩人已經同社團，輸出
+\texttt{same}；合併 4、1 得到 $\{1, 2, 3, 4\}$，輸出 \texttt{4}；查學生 5 輸出
+\texttt{1 5}；查學生 3 輸出 \texttt{4 9}。
+
+\textbf{想法}
+
+最直接的做法是開一個陣列記每個人在哪個社團。 合併時掃過所有學生，把其中一個
+社團的編號全部改成另一個；查詢時掃過所有學生，數出同社團的人數和積分。 每個操
+作 $O(n)$，總共 $O(nq) = 4 \times 10^{10}$，來不及。
+
+這正是並查集的問題：社團只合併、不拆開。 人數和積分總和照上一小節的說法，只存
+在根上：
+
+\begin{itemize}
+\item \texttt{members[r]}、\texttt{total[r]}：以 $r$ 為根的社團的人數與積分總和。
+一開始 \texttt{members[i] = 1}、\texttt{total[i] = p\_i}。
+\item 合併時找出兩個根，相同就輸出 \texttt{same}；不同就把小的接到大的底下，人
+數和積分都加到大的那個根上。
+\item 查詢時先 \texttt{find(a)}，讀根上的兩個數。
+\end{itemize}
+
+積分總和最大是 $2 \times 10^5 \times 10^9 = 2 \times 10^{14}$，要用
+\texttt{long long}。
+
+同樣的模型也出現在別的地方：公司合併時，要隨時知道每個集團旗下有幾家公司、總
+營收多少；倉庫把可以互相替代的料號合成一類，要知道每一類的總庫存。
+
+\textbf{程式}
+
+\begin{example}[label=ex:club]{cpp}{(club.cpp) 社團合併與總積分}
+#include <iostream>
+#include <utility>
+#include <vector>
+using namespace std;
+
+vector<int> parent, members;          // members、total 只在根上有意義
+vector<long long> total;
+
+int find(int x) {
+    if (parent[x] == x) {
+        return x;
+    }
+    return parent[x] = find(parent[x]);   // 路徑壓縮
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, q;
+    cin >> n >> q;
+    parent.resize(n + 1);
+    members.assign(n + 1, 1);
+    total.assign(n + 1, 0);
+    for (int i = 1; i <= n; i++) {
+        parent[i] = i;
+        cin >> total[i];
+    }
+    while (q--) {
+        int type;
+        cin >> type;
+        if (type == 1) {
+            int a, b;
+            cin >> a >> b;
+            a = find(a);
+            b = find(b);
+            if (a == b) {
+                cout << "same\n";
+                continue;
+            }
+            if (members[a] > members[b]) {    // 小的社團接到大的底下
+                swap(a, b);
+            }
+            parent[a] = b;
+            members[b] += members[a];
+            total[b] += total[a];
+            cout << members[b] << '\n';
+        } else {
+            int a;
+            cin >> a;
+            a = find(a);
+            cout << members[a] << ' ' << total[a] << '\n';
+        }
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+5 7 \\
+3 1 4 1 5 \\
+1 1 2 \\
+2 2 \\
+1 3 4 \\
+1 2 1 \\
+1 4 1 \\
+2 5 \\
+2 3 \\
+}{
+2 \\
+2 4 \\
+2 \\
+same \\
+4 \\
+1 5 \\
+4 9 \\
+}
+
+\texttt{members} 同時是按大小合併用的大小，不用另外開 \texttt{sz}。 範例最後查學
+生 3：\texttt{find(3)} 走 $3 \to 4 \to 2$，讀到根 2 上的 \texttt{4 9}。
+
+\textbf{複雜度}
+
+每個操作幾乎是常數時間，總共 $O((n + q)\,\alpha(n))$。 最大的測試資料在本書測
+試的環境下約 $0.15$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{積分總和用 \texttt{int}}：把 \texttt{total} 改成
+\texttt{vector<int>}。 輸入三位積分都是 $10^9$ 的學生，全部合併後查詢，正確答
+案是 \texttt{3 3000000000}，在本書測試的環境下印出 \texttt{3 -1294967296}。
+\item \textbf{沒有先判斷已經同社團}：拿掉 \texttt{if (a == b)} 那一段。 同一群
+合併時 \texttt{parent[a] = b} 只是把根接到自己，看不出問題，但人數和積分會再
+加一次。 上面那組輸入裡，第一個操作 \texttt{1 2 2} 應該印 \texttt{same}，這樣
+寫會印 \texttt{2}；最後的查詢印出 \texttt{8 8000000000}。
+\item \textbf{查詢時忘了 \texttt{find}}：直接讀 \texttt{members[a]}。 範例最
+後一行應該是 \texttt{4 9}，這樣寫印出 \texttt{1 4}，因為學生 3 已經不是根，它
+身上的數字停在合併前。
+\end{itemize}
+
+\subsection{預告：帶權並查集與奇偶性}
+\label{sec:dsu-parity}
+
+有一類題目只有兩隊，給的關係有兩種：「$a$、$b$ 同隊」和「$a$、$b$ 不同隊」。 例如：「1 和 2 不同隊」「2 和 3 不同隊」，可以推出 1 和
+3 同隊；如果接著又說「1 和 3 不同隊」，就自相矛盾了。
+
+並查集可以處理這種關係：每個點除了 \texttt{parent}，再多記一個 $0$ 或 $1$，表
+示「我和 \texttt{parent} 同隊（$0$）還是不同隊（$1$）」。 沿著樹往上走到根時，
+把路上的這些數用互斥或（\texttt{\^}）累加起來，就知道自己和根同隊還是不同隊。
+兩個點在同一群時，比較它們各自和根的關係，就能回答「同隊、不同隊」或發現矛盾。
+這種在 \texttt{parent} 旁邊多記一個「和上一層的關係」的寫法叫\textbf{帶權並查
+集}（weighted union-find），路徑壓縮時這個數也要跟著更新，細節比一般的並查集
+多一些。
+
+完整的寫法留到《C++ 演算法解題 3》。 如果所有關係一次給完、不必邊加邊問，這類題目也可以用第
+~\ref{sec:bipartite}~節的二分圖上色來做，實作練習裡有兩題可以用兩種方法比較。
+
+\section{無向圖找環}
+\label{sec:cycle-undirected}
+
+無向圖上的\textbf{環}（cycle）是一條從某個點出發、每條邊最多走一次、最後回到
+出發點的路線。 沒有重邊和自環的圖，環至少有三個點，例如圖~\ref{fig:dsu-villages}
+的 $1 - 2 - 3 - 4 - 1$。 有些題目允許重邊，這時兩點之間的兩條邊就能繞成一個環；
+自環本身也是一個環。 讀題時先確認題目怎麼算。
+
+下面三種方法都能判斷一張無向圖有沒有環，各有適合的時候。
+
+\textbf{方法一：並查集。} 依序加邊，\texttt{unite} 回傳 \texttt{false} 的那條
+邊，兩端早就連通，加上去就形成環。 範例~\ref{ex:repair-roads} 的 \texttt{loop} 就是這
+樣標出來的。 這個方法順便回答了「加到第幾條邊時第一次出現環」，邊是一條一條給
+的題目最好用。 重邊也會被正確抓到：第二條重邊的兩端已經連通。 自環
+\texttt{unite(a, a)} 也會回傳 \texttt{false}。
+
+\textbf{方法二：數點和邊。} 第 1 本第~13~章說過，$c$ 個點的連通圖至少要 $c - 1$ 條
+邊，剛好 $c - 1$ 條時是一棵樹，沒有環。 所以先找出每個連通元件，數它有幾個點
+$c$、幾條邊 $e$：$e \ge c$ 就有環，$e = c - 1$ 就沒有。 不用真的找出環在哪裡，
+寫起來最短。 整張圖要拿掉幾條邊才會沒有環，也能這樣算：每個元件要拿掉
+$e - (c - 1)$ 條。
+
+\textbf{方法三：DFS。} 從一個點出發做 DFS，走到 $u$ 時，如果 $u$ 有一個鄰居 $v$
+已經走過，而且 $v$ 不是剛才走來 $u$ 的那個點，就找到了環：從 $v$ 沿著 DFS 走到
+$u$，再走 $u$--$v$ 這條邊回到 $v$。 要把環上的點印出來，就記下每個點是從哪個點
+走來的（\texttt{from}），找到時從 $u$ 沿著 \texttt{from} 往回走到 $v$。
+
+「不是剛才走來的那個點」這個條件要小心。 如果圖有重邊，而題目把兩條重邊算成
+一個環，就要改成「不是剛才走來的那\textbf{條邊}」，所以要替每條邊編號：
+
+\begin{code}{cpp}{DFS 找無向圖的環（判斷用）}
+// adj[u] 存 (鄰居, 邊的編號)；cameBy[u] 是走到 u 用的那條邊，起點設成 -1
+bool foundCycle = false;
+
+void dfs(int u) {
+    seen[u] = true;
+    for (auto [v, id] : adj[u]) {
+        if (id == cameBy[u]) {
+            continue;                  // 剛才走來的那條邊，不算
+        }
+        if (seen[v]) {
+            foundCycle = true;         // 從別的邊又碰到走過的點
+        } else {
+            cameBy[v] = id;
+            dfs(v);
+        }
+    }
+}
+\end{code}
+
+為什麼碰到走過的點就一定有環？ $u$ 和 $v$ 都已經走過，表示 DFS 早就沿著別的邊
+把它們連起來了，再加上 $u$--$v$ 這條沒用過的邊，就繞成一圈。 而且第一次發生這
+種情況時，$v$ 一定還沒結束，是 $u$ 在呼叫堆疊裡的祖先：一條無向邊兩端都看得
+到，如果 $v$ 先結束，它在結束前就會從自己那一端看到 $u$--$v$。 所以在第一次發
+現時停下來，從 $u$ 沿著 \texttt{from} 往回走，一定走得到 $v$。 下一節會看到，有
+向圖沒有這個性質，碰到走過的點不代表有環。
+
+和第 1 本第~11~章一樣，點數到 $10^5$ 以上時，遞迴可能太深，改用第 1 本 11.5 節的改法二。
+
+三種方法怎麼選：邊一條一條加、要知道從第幾條邊開始有環，用並查集；只要知道每個
+元件有沒有環，數點和邊；要印出環上的點，用 DFS。
+
+\section{有向圖找環}
+\label{sec:cycle-directed}
+
+有向圖的環要順著箭頭走：從某個點出發，沿著箭頭走回出發點。 第 1 本第~9~章和本書第~6~
+章的有向無環圖，就是沒有這種環的有向圖。 工作排程、課程先修這類「$a$ 要在 $b$
+之前」的關係，出現環就表示互相等待，永遠排不出順序。
+
+上一節的 DFS 搬到有向圖上會出錯。 看下圖左邊：$1 \to 2$、$1 \to 3$、
+$3 \to 2$，順著箭頭走不出任何環。 從 1 出發的 DFS 先走 2，2 沒有往外的箭頭，結
+束；回到 1 再走 3，3 的鄰居 2 已經走過了。 照無向圖的規則，這時會誤判成有環。
+
+\begin{center}
+\begin{tikzpicture}[x=1.2cm, y=1.1cm]
+\begin{scope}
+\node[font=\small] at (1,2) {沒有環};
+\node[dsv] (1) at (0,1) {1};
+\node[dsv] (2) at (2,1) {2};
+\node[dsv] (3) at (1,0) {3};
+\draw[dsd] (1) -- (2);
+\draw[dsd] (1) -- (3);
+\draw[dsdhl] (3) -- (2);
+\end{scope}
+\begin{scope}[xshift=4.5cm]
+\node[font=\small] at (1.5,2) {有環};
+\node[dsv] (1) at (0,1) {1};
+\node[dsvhl] (2) at (1,1) {2};
+\node[dsvhl] (4) at (2,1) {4};
+\node[dsvhl] (5) at (2,0) {5};
+\node[dsvhl] (3) at (1,0) {3};
+\draw[dsd] (1) -- (2);
+\draw[dsd] (1) -- (3);
+\draw[dsdhl] (3) -- (2);
+\draw[dsdhl] (2) -- (4);
+\draw[dsdhl] (4) -- (5);
+\draw[dsdhl] (5) -- (3);
+\end{scope}
+\end{tikzpicture}
+\diagcaption{左：DFS 從 3 碰到已經結束的 2，但沒有環。 右：多了 $2 \to 4$、
+$4 \to 5$、$5 \to 3$，橘色的四條邊繞成環 $2 \to 4 \to 5 \to 3 \to 2$。}
+\label{fig:directed-cycle}
+\end{center}
+
+差別在於：左圖的 2 已經\textbf{結束}了，DFS 從 2 出發能走的都走完了，也沒有回
+到 1 或 3。 碰到一個已經結束的點，只表示兩條路在那裡會合，不表示繞了回來。 真
+正的環，是碰到一個\textbf{還沒結束}的點，也就是目前這條路上的祖先：從它走到
+$u$，再走 $u \to v$ 回到它。
+
+所以每個點要分三種狀態，不能只記「去過沒有」：
+
+\begin{itemize}
+\item $0$：還沒去過。
+\item $1$：去過了，但還沒結束，還在目前這條路上（第 1 本第~11~章說的呼叫堆疊裡）。
+\item $2$：已經結束，從它出發能走的都走完了。
+\end{itemize}
+
+DFS 進入一個點時把它設成 $1$，離開時設成 $2$。 看到一條 $u \to v$：$v$ 是 $0$
+就走過去；$v$ 是 $1$ 就找到環；$v$ 是 $2$ 就跳過。
+
+要在離開一個點的那一刻做事，就需要第 1 本第~11~章 11.5 節的改法二：堆疊裡每一格記住
+點和「下一個要看的鄰居」，鄰居看完了才彈出。 這個堆疊剛好就是目前這條路，所以
+找到環的時候，堆疊裡從 $v$ 到頂端的那一段就是環上的點，不用另外記
+\texttt{from}。 \texttt{pos[v]} 記 $v$ 在堆疊裡的位置。
+
+\begin{example}[label=ex:directed-cycle]{cpp}{(directed\_cycle.cpp) 找出有向圖的一個環}
+#include <iostream>
+#include <utility>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n, m;
+    cin >> n >> m;
+    vector<vector<int>> adj(n + 1);
+    for (int i = 0; i < m; i++) {
+        int u, v;
+        cin >> u >> v;
+        adj[u].push_back(v);
+    }
+    // state：0 還沒去過，1 在目前的路上，2 已經結束
+    vector<int> state(n + 1, 0), pos(n + 1, -1);
+    vector<pair<int, int>> st;             // （點, 下一個要看的鄰居位置）
+    for (int s = 1; s <= n; s++) {
+        if (state[s] != 0) {
+            continue;
+        }
+        state[s] = 1;
+        pos[s] = 0;
+        st.push_back({s, 0});
+        while (!st.empty()) {
+            int u = st.back().first;
+            int i = st.back().second;
+            if (i == (int)adj[u].size()) {     // u 的鄰居都看完了
+                state[u] = 2;
+                st.pop_back();
+                continue;
+            }
+            st.back().second++;
+            int v = adj[u][i];
+            if (state[v] == 0) {
+                state[v] = 1;
+                pos[v] = st.size();            // v 在堆疊裡的位置
+                st.push_back({v, 0});
+            } else if (state[v] == 1) {        // v 還在路上：找到環
+                cout << "cycle:";
+                for (int k = pos[v]; k < (int)st.size(); k++) {
+                    cout << ' ' << st[k].first;
+                }
+                cout << ' ' << v << '\n';
+                return 0;
+            }
+        }
+    }
+    cout << "no cycle\n";
+    return 0;
+}
+\end{example}
+
+\iosample{
+5 6 \\
+1 2 \\
+1 3 \\
+3 2 \\
+2 4 \\
+4 5 \\
+5 3 \\
+}{
+cycle: 2 4 5 3 2 \\
+}
+
+輸入是圖~\ref{fig:directed-cycle} 右邊。 下表每一列是「進入一個新的點」或「發現
+環」的那一刻：
+
+\begin{center}
+\begin{tabular}{clll}
+\toprule
+步 & 看到的邊 & 發生的事 & 堆疊（底在左） \\
+\midrule
+1 & --- & 進入 1 & 1 \\
+2 & $1 \to 2$ & 2 是 $0$，進入 & 1 2 \\
+3 & $2 \to 4$ & 4 是 $0$，進入 & 1 2 4 \\
+4 & $4 \to 5$ & 5 是 $0$，進入 & 1 2 4 5 \\
+5 & $5 \to 3$ & 3 是 $0$，進入 & 1 2 4 5 3 \\
+6 & $3 \to 2$ & 2 是 $1$：找到環 & 1 2 4 5 3 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+2 在堆疊的第 1 格（從 $0$ 算），印出第 1 格到頂端的 2、4、5、3，再補上 2。 如果
+拿掉 $5 \to 3$，DFS 會把每個點都設成 $2$，印出 \texttt{no cycle}。
+
+\begin{itemize}
+\item 外層迴圈從每個還沒去過的點出發，因為從 1 出發不一定走得到所有點，環可能
+在別的地方。
+\item 自環 $u \to u$ 也會被抓到：看到這條邊時 $u$ 自己的狀態就是 $1$。
+\item 每個點進出堆疊各一次，每條邊看一次，總共 $O(n + m)$。
+\end{itemize}
+
+另一個判斷有向圖有沒有環的方法，是第~6~章的拓樸排序：每次拿掉一個沒有箭頭指
+進來的點，如果拿到最後還剩下點，剩下的點就卡在某個環裡（或排在環的後面）。 只
+問「有沒有環」時，兩種都可以；要印出環上的點，用三種狀態的 DFS 比較直接。
+
+\section{二分圖}
+\label{sec:bipartite}
+
+期末考要把 $n$ 個科目排在星期一和星期二兩天考完。 有些科目有共同的考生，不能
+排在同一天。 能不能排得出來？ 把科目畫成點，有共同考生的兩科之間連一條邊，問題
+變成：能不能把每個點塗成兩種顏色之一，讓每條邊的兩端顏色都不同？
+
+能這樣塗的無向圖叫\textbf{二分圖}（bipartite graph）：點可以分成兩邊，每條邊都
+跨過兩邊，同一邊的點之間沒有邊。 分兩隊、分兩班、兩個櫃子、兩種角色，題目只要
+問「能不能分成兩組、某些兩兩不能同組」，就是在問二分圖。
+
+\subsection{用 BFS 上色}
+
+一個點塗了某種顏色之後，它的鄰居全都只能塗另一種，沒有選擇。 所以從任何一個
+點開始，先隨便塗一種顏色，接下來整個連通元件的顏色都被決定了。 用 BFS 一層一層
+塗：
+
+\begin{itemize}
+\item 起點塗 $0$，放進佇列。
+\item 從佇列拿出 $u$，看它的每個鄰居 $v$：$v$ 還沒塗色，就塗成和 $u$ 相反的顏
+色、放進佇列；$v$ 已經塗了，而且和 $u$ 同色，就是\textbf{衝突}，這個元件不是
+二分圖。
+\end{itemize}
+
+BFS 從起點出發，距離 $d$ 的點塗的是 $d \bmod 2$：偶數層一種顏色，奇數層另一種。
+所以 \texttt{color[v]} 其實就是第 1 本第~11~章的 \texttt{dist[v]} 只留奇偶。 用 DFS 塗
+也可以，每走一步換一次顏色；點數大時一樣要注意遞迴深度。
+
+下圖左邊從 1 開始塗。 1 塗藍；2、3 塗粉紅；4 塗藍；5 塗粉紅；6 塗藍。 每條邊兩
+端都不同色，它是二分圖。 右邊多了一條 3--5。 BFS 處理 3 的時候，5 還沒上色，就從
+3 塗成藍色，距離變成 $2$，和 4 同一層。 接著處理 4，看到鄰居 5 也是藍色，衝突。
+
+\begin{center}
+\begin{tikzpicture}[x=1.2cm, y=1.1cm]
+\begin{scope}
+\node[dsvblue] (1) at (0,1) {1};
+\node[dsvalt] (2) at (1,2) {2};
+\node[dsvalt] (3) at (1,0) {3};
+\node[dsvblue] (4) at (2,1) {4};
+\node[dsvalt] (5) at (3,1) {5};
+\node[dsvblue] (6) at (4,1) {6};
+\draw[dse] (1) -- (2);
+\draw[dse] (1) -- (3);
+\draw[dse] (2) -- (4);
+\draw[dse] (3) -- (4);
+\draw[dse] (4) -- (5);
+\draw[dse] (5) -- (6);
+\foreach \x/\d in {0/0, 1/1, 2/2, 3/3, 4/4} {\node[dslbl] at (\x,-0.7) {$d = \d$};}
+\end{scope}
+\begin{scope}[xshift=6.3cm]
+\node[dsvblue] (1) at (0,1) {1};
+\node[dsvalt] (2) at (1,2) {2};
+\node[dsvalt] (3) at (1,0) {3};
+\node[dsvblue] (4) at (2,1) {4};
+\node[dsvblue] (5) at (3,1) {5};
+\node[dsvalt] (6) at (4,1) {6};
+\draw[dse] (1) -- (2);
+\draw[dse] (1) -- (3);
+\draw[dse] (2) -- (4);
+\draw[dse] (3) -- (4);
+\draw[dsebad] (4) -- (5);
+\draw[dse] (5) -- (6);
+\draw[dse] (3) to[bend right=25] (5);
+\end{scope}
+\end{tikzpicture}
+\diagcaption{BFS 上色，藍色是 $0$、粉紅是 $1$，$d$ 是左圖到點 1 的距離。 右圖多
+了 3--5，虛線 4--5 兩端同色；$3 - 4 - 5 - 3$ 是一個三條邊的環。}
+\label{fig:bipartite}
+\end{center}
+
+右圖的衝突不是上色的順序不好。 3--4--5--3 是一個三條邊的環，繞一圈要換三次顏
+色，換奇數次一定回不到原來的顏色，不管怎麼塗都不行。 一般的結論是：
+
+\begin{center}
+一張無向圖是二分圖，剛好就是它沒有長度為奇數的環（\textbf{奇環}，odd cycle）。
+\end{center}
+
+有奇環就不可能塗，理由就是上面那一句。 反過來，BFS 上色時一旦出現衝突，一定找
+得到一個奇環，所以「BFS 沒衝突」和「沒有奇環」是同一件事。 這一半的理由放在下
+面的框裡。
+
+\begin{whybox}[BFS 的衝突一定來自奇環]
+設 BFS 從 $s$ 出發，看到一條邊 $u$--$v$ 兩端同色。 同色表示 $d(u)$ 和 $d(v)$
+同奇偶。 從 $u$ 和 $v$ 各自沿著「是從哪個點走來的」一路往回走，最後都會回到
+$s$；設兩條路第一次會合在點 $w$。 走 $w \to \cdots \to u$，經過 $u$--$v$，再走
+$v \to \cdots \to w$，是一個環，長度是
+\[
+\bigl(d(u) - d(w)\bigr) + 1 + \bigl(d(v) - d(w)\bigr)
+= d(u) + d(v) - 2d(w) + 1 .
+\]
+$d(u) + d(v)$ 是偶數，減掉偶數 $2d(w)$ 還是偶數，再加 $1$ 是奇數。 這兩條往回
+的路在 $w$ 之前沒有共同的點，所以這真的是一個環。 圖~\ref{fig:bipartite} 右邊：
+$u = 4$、$v = 5$，往回走是 $4 \to 2 \to 1$ 和 $5 \to 3 \to 1$，會合在 $1$，得到
+長度 $2 + 1 + 2 = 5$ 的奇環 $1 - 2 - 4 - 5 - 3 - 1$。 它和 $3 - 4 - 5 - 3$ 不
+同，但一樣是奇數長。
+\end{whybox}
+
+\subsection{好幾個連通元件}
+
+圖不一定連通。 每個連通元件各自上色，互不影響，所以外層用第 1 本第~11~章數連通元件的
+迴圈，從每個還沒塗色的點開始一次 BFS。 整張圖是二分圖，就是每個元件都是。
+
+一個元件只要能塗，剛好有兩種塗法：起點塗 $0$ 或塗 $1$，其他點跟著決定，兩種塗
+法互為顏色對調。 所以有 $c$ 個元件的二分圖一共有 $2^c$ 種塗法。 題目要求答案唯
+一時，通常會規定「每個元件編號最小的點塗某一種」，從編號小的點開始掃，每個元
+件第一個被掃到的就是它最小的點，正好符合。
+
+\subsection{例題：不相容藥品分櫃}
+\label{sec:ex-cabinets}
+
+\textbf{題意}（\akiref{cabinets-for-incompatible-chemicals}{不相容藥品分櫃}）
+
+\begin{itemize}
+\item 實驗室有 $n$ 種藥品，有 $m$ 組不相容的配對，配對的兩種不能放在同一個櫃
+子。 能經由配對連起來的藥品屬於同一個群組。
+\item 每個群組分開處理：能只用 A、B 兩櫃放好，就這樣放，而且群組裡編號最小的
+放 A；不管怎麼放都做不到的群組，整組放進隔離櫃 C。
+\item 輸出長度 $n$ 的字串，第 $i$ 個字元是藥品 $i$ 的櫃子。 $n, m \le 2 \times
+10^5$，配對可能重複出現。
+\end{itemize}
+
+例如 $n = 6$，配對是 1--2、3--4、4--5、5--3、2--6。 群組 $\{3, 4, 5\}$ 三種兩兩
+不相容，兩個櫃子放不下，全部放 C；群組 $\{1, 2, 6\}$ 放成 1 在 A、2 在 B、6 在 A。
+答案是 \texttt{ABCCCA}。
+
+\textbf{想法}
+
+藥品是點、不相容配對是邊，群組就是連通元件，「只用 A、B 放好」就是這個元件是
+二分圖。 最直接的做法是每個群組試遍所有放法，群組有 $k$ 種藥品就有 $2^k$ 種，
+$k$ 到幾十就來不及。 上一小節已經說過，一個元件只要起點的顏色定了，其他都跟著
+決定，不用試。
+
+做法照上一小節：編號由小到大掃，遇到還沒上色的 $s$，它就是新群組裡編號最小的，
+從它開始 BFS，$s$ 塗 A。 BFS 時順便把走到的點記在 \texttt{group} 裡，同時記下
+有沒有出現衝突。 整個群組走完之後，有衝突就全部標 C，沒有就照顏色標 A、B。
+
+衝突出現時\textbf{不能停下來}。 如果停在一半，群組裡還沒走到的藥品，之後會被
+外層迴圈當成新群組的起點，照常放 A、B。 題目要求整組放 C，所以一定要把整個群
+組走完。
+
+同樣的模型也出現在別的地方：值班表要把同事分成早晚兩班，有些人不能同班；一場
+辯論賽要把報名者分成正反兩方，同一個研究室的人不能同一方。 分不成兩班的那一群
+另外處理。
+
+\textbf{程式}
+
+\begin{example}[label=ex:cabinets]{cpp}{(cabinets.cpp) 不相容藥品分櫃}
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, m;
+    cin >> n >> m;
+    vector<vector<int>> adj(n + 1);
+    for (int i = 0; i < m; i++) {
+        int u, v;
+        cin >> u >> v;
+        adj[u].push_back(v);
+        adj[v].push_back(u);
+    }
+    vector<int> color(n + 1, -1);          // -1：還沒上色；0：A 櫃；1：B 櫃
+    string ans(n, '?');
+    vector<int> group;                     // 這一群的成員，兼當 BFS 的佇列
+    for (int s = 1; s <= n; s++) {
+        if (color[s] != -1) {
+            continue;
+        }
+        group.assign(1, s);                // s 是這一群編號最小的藥品
+        color[s] = 0;
+        bool conflict = false;
+        for (int head = 0; head < (int)group.size(); head++) {
+            int u = group[head];
+            for (int v : adj[u]) {
+                if (color[v] == -1) {
+                    color[v] = 1 - color[u];
+                    group.push_back(v);
+                } else if (color[v] == color[u]) {
+                    conflict = true;       // 記下來，但這一群還是要走完
+                }
+            }
+        }
+        for (int u : group) {
+            ans[u - 1] = conflict ? 'C' : (color[u] == 0 ? 'A' : 'B');
+        }
+    }
+    cout << ans << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+6 5 \\
+1 2 \\
+3 4 \\
+4 5 \\
+5 3 \\
+2 6 \\
+}{
+ABCCCA \\
+}
+
+\begin{itemize}
+\item \texttt{group} 同時是佇列和成員名單：\texttt{head} 往後走就是從佇列拿出
+來，BFS 結束時 \texttt{group} 裡剛好是整個群組。 用 \texttt{queue} 的話，拿出
+來的點就不見了，還要另外存一份名單。
+\item 範例的 $s = 3$ 時，3 塗 A，4、5 塗 B；處理 4 時看到鄰居 5 也是 B，衝突。
+程式繼續把群組走完，三個都標 C。
+\end{itemize}
+
+\textbf{複雜度}
+
+每個點進出 \texttt{group} 一次，每條邊從兩端各看一次，$O(n + m)$。 最大的測試
+資料在本書測試的環境下約 $0.15$ 秒，大部分花在讀輸入。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{衝突就停下 BFS}：在 \texttt{for (int head ...)} 的條件加上
+\texttt{\&\& !conflict}。 輸入
+\begin{code}{text}{停在一半會錯的輸入}
+4 4
+1 2
+2 3
+3 1
+3 4
+\end{code}
+正確答案是 \texttt{CCCC}，這樣寫會印 \texttt{CCCA}：處理 2 時就發現 2、3 同色，
+停下來時 4 還沒走到，之後被當成新群組放進 A。
+\item \textbf{起點不是群組裡編號最小的}：例如從輸入第一條配對的端點開始 BFS。
+輸入 \texttt{7 5}、\texttt{2 1}、\texttt{3 2}、\texttt{6 5}、\texttt{5 4}、
+\texttt{1 2} 時，正確答案是 \texttt{ABAABAA}，從 2 開始塗會印
+\texttt{BABABAA}。
+\item \textbf{整張圖一起判斷}：只要有一個衝突就全部放 C。 上面範例的群組
+$\{1, 2, 6\}$ 會被拖累，印出 \texttt{CCCCCC}。
+\item \textbf{遞迴的 DFS 上色}：測試資料裡有一條將近 $2 \times 10^5$ 個點的長
+鏈，在本書測試的環境下 \texttt{Segmentation fault}。
+\end{itemize}
+
+\subsection{什麼時候用、什麼時候不能用}
+
+\begin{itemize}
+\item 適合：分成兩組，某些兩兩不能同組（或必須不同組）；問「能不能分」、「一共
+有幾種分法」、「每個點分到哪邊」。
+\item 不能用：分成\textbf{三組}以上。 三種顏色的上色問題，目前沒有人知道有效率
+的演算法，題目的點數通常很小，只能用第 1 本第~4~章的回溯。 看到「三組」時先看資料範圍。
+\end{itemize}
+
+\section{函數圖}
+\label{sec:functional}
+
+第 1 本第~4~章 4.6 節的週期偵測裡，每個狀態的下一步只由它自己決定。 把每個狀態畫成一
+個點、從它畫一個箭頭指到下一個狀態，得到的有向圖有一個特色：每個點\textbf{剛好
+只有一條}往外的箭頭。 這種圖叫\textbf{函數圖}（functional graph），因為它就是
+一個函數 $f$：從 $x$ 出發的箭頭指向 $f(x)$。
+
+第 1 本 4.6 節只從一個起點出發，一步一步走，畫出來是一條尾巴接上一個圈的 $\rho$ 形狀。
+這一節換個角度，看整張函數圖長什麼樣子，以及所有點一起處理的方法。 題目常常直
+接給 $f$：每個人只把消息傳給一個固定的人、每個房間的傳送門只通到一個房間、每
+個格子上的箭頭只指向一格。
+
+\subsection{每一塊剛好一個圈}
+
+下圖是 $n = 10$、$f = (5, 3, 4, 2, 4, 7, 6, 7, 8, 10)$ 的函數圖，也就是
+$f(1) = 5$、$f(2) = 3$、\ldots。
+
+\begin{center}
+\begin{tikzpicture}[x=1.15cm, y=1.1cm]
+\node[dsv] (1) at (0,1) {1};
+\node[dsv] (5) at (1,1) {5};
+\node[dsvhl] (4) at (2,1) {4};
+\node[dsvhl] (2) at (3,1.7) {2};
+\node[dsvhl] (3) at (3,0.3) {3};
+\draw[dsd] (1) -- (5);
+\draw[dsd] (5) -- (4);
+\draw[dsdhl] (4) -- (2);
+\draw[dsdhl] (2) -- (3);
+\draw[dsdhl] (3) -- (4);
+\node[dsv] (9) at (4.7,1) {9};
+\node[dsv] (8) at (5.7,1) {8};
+\node[dsvhl] (7) at (6.7,1) {7};
+\node[dsvhl] (6) at (7.9,1) {6};
+\draw[dsd] (9) -- (8);
+\draw[dsd] (8) -- (7);
+\draw[dsdhl] (7) to[bend left=30] (6);
+\draw[dsdhl] (6) to[bend left=30] (7);
+\node[dsvhl] (10) at (9.3,1) {10};
+\draw[dsdhl] (10) to[out=60, in=120, looseness=6] (10);
+\end{tikzpicture}
+\diagcaption{一張函數圖。 橘色的點和箭頭是圈，其他點都在通往圈的尾巴上。 10 指
+向自己，是長度 $1$ 的圈。}
+\label{fig:functional}
+\end{center}
+
+這張圖分成三塊，每一塊剛好有一個圈，其他點都順著箭頭流進那個圈。 這不是巧合：
+
+\begin{itemize}
+\item \textbf{每一塊至少一個圈}：從任何點出發一直走，點只有有限個，總會走到走
+過的點，從那裡開始就繞圈。 這就是第 1 本 4.6 節的 $\rho$。
+\item \textbf{每一塊至多一個圈}：不看箭頭方向，把一塊當成無向圖。 它有 $c$ 個
+點，每個點剛好一條往外的邊，所以剛好 $c$ 條邊。 照第~\ref{sec:cycle-undirected}~
+節的方法二，$c$ 個點的連通圖只要 $c - 1$ 條邊就是一棵樹，多出來的那一條邊只能
+造出一個環。
+\end{itemize}
+
+所以函數圖的每一塊都像一個 $\rho$ 的放大版：一個圈，加上幾棵樹，樹上的箭頭全部
+指向圈。 從任何點出發走，先走完一段\textbf{尾巴}，進入它那一塊的圈，之後就一直
+繞。 圖~\ref{fig:functional} 裡，從 1 出發走 $1 \to 5 \to 4$，尾巴長 $2$，接著在
+長度 $3$ 的圈 $4 \to 2 \to 3 \to 4$ 上繞。
+
+\subsection{一次算出每個點的尾巴和圈}
+
+題目常常要每個點的資料：從 $x$ 出發，走幾步進入圈（尾巴長 \texttt{tail[x]}），
+那個圈多長（\texttt{cyc[x]}）。 每個點各自照第 1 本 4.6 節的方法走一次，最壞是
+$O(n^2)$：$n$ 個點排成一條長尾巴時，每個點都要走過整條尾巴。
+
+走過的點不必再走。 這和第~\ref{sec:cycle-directed}~節的三種狀態是同一個想法，只
+是每個點只有一條出邊，DFS 就簡化成一直往前走。 從還沒走過的 $s$ 出發，沿路把點
+設成 $1$ 並記在 \texttt{path} 裡，直到碰見狀態不是 $0$ 的點 $x$。 $x$ 是 $1$，表
+示撞上這一趟自己的路，\texttt{path} 從 $x$ 開始的那一段是新的圈；$x$ 是 $2$，表
+示接上以前算好的點。 最後把還沒算好的點從靠近圈的一端往回算：
+\texttt{tail[u] = tail[f[u]] + 1}、\texttt{cyc[u] = cyc[f[u]]}。
+
+\begin{example}[label=ex:functional]{cpp}{(functional.cpp) 每個點的尾巴長和圈長}
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+    vector<int> f(n + 1);
+    for (int i = 1; i <= n; i++) {
+        cin >> f[i];
+    }
+    // state：0 還沒走過，1 在這一趟的路上，2 已經算好
+    vector<int> state(n + 1, 0), tail(n + 1), cyc(n + 1), pos(n + 1);
+    vector<int> path;
+    for (int s = 1; s <= n; s++) {
+        if (state[s] != 0) {
+            continue;
+        }
+        path.clear();
+        int x = s;
+        while (state[x] == 0) {            // 一直走到碰見走過的點
+            state[x] = 1;
+            pos[x] = path.size();
+            path.push_back(x);
+            x = f[x];
+        }
+        int end = path.size();             // path[0 .. end-1] 還沒算好
+        if (state[x] == 1) {               // 撞上這一趟自己：新的圈
+            int len = end - pos[x];
+            for (int i = pos[x]; i < end; i++) {
+                tail[path[i]] = 0;
+                cyc[path[i]] = len;
+                state[path[i]] = 2;
+            }
+            end = pos[x];
+        }
+        for (int i = end - 1; i >= 0; i--) {   // 尾巴上的點，從靠近圈的往回算
+            int u = path[i];
+            tail[u] = tail[f[u]] + 1;
+            cyc[u] = cyc[f[u]];
+            state[u] = 2;
+        }
+    }
+    cout << "tail:";
+    for (int i = 1; i <= n; i++) {
+        cout << ' ' << tail[i];
+    }
+    cout << "\ncycle:";
+    for (int i = 1; i <= n; i++) {
+        cout << ' ' << cyc[i];
+    }
+    cout << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+10 \\
+5 3 4 2 4 7 6 7 8 10 \\
+}{
+tail: 2 0 0 0 1 0 0 1 2 0 \\
+cycle: 3 3 3 3 3 2 2 2 2 1 \\
+}
+
+外層迴圈每一輪的情形：
+
+\begin{center}
+\begin{tabular}{cllll}
+\toprule
+$s$ & \texttt{path} & 停在 & 狀態 & 結果 \\
+\midrule
+1 & 1 5 4 2 3 & 4 & $1$ & 圈 4、2、3，長 $3$；5 的尾巴 $1$，1 的尾巴 $2$ \\
+6 & 6 7 & 6 & $1$ & 圈 6、7，長 $2$ \\
+8 & 8 & 7 & $2$ & 8 的尾巴 $1$ \\
+9 & 9 & 8 & $2$ & 9 的尾巴 $2$ \\
+10 & 10 & 10 & $1$ & 圈 10，長 $1$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+$s = 2, 3, 4, 5, 7$ 時已經算好，直接跳過。 每個點只進入 \texttt{path} 一次，總共 $O(n)$。
+
+\subsection{第 $k$ 步會走到哪裡}
+
+從 $x$ 出發走 $k$ 步，停在哪個點？ 只有一個起點時，第 1 本 4.6 節已經講過：記下走過的
+路，找到尾巴長 $p$ 和圈長 $L$，$k \ge p$ 時第 $k$ 步和第
+$p + (k - p) \bmod L$ 步相同。 圖~\ref{fig:functional} 從 9 出發，尾巴長 $2$、圈
+長 $2$，第 $10^{18}$ 步和第 $2 + (10^{18} - 2) \bmod 2 = 2$ 步相同，停在 7。
+
+起點很多、每個起點要問很多次時，每次都重走一遍太慢。 一個通用的做法叫
+\textbf{倍增}（binary lifting）：先算出每個點走 $1$ 步、$2$ 步、$4$ 步、
+$8$ 步……會到哪裡：\texttt{up[j][x]} 是從 $x$ 走 $2^j$ 步到的點。 走 $2^j$ 步
+等於先走 $2^{j-1}$ 步、再走 $2^{j-1}$ 步，所以每一層都能從上一層算出來。 要走
+$k$ 步時，把 $k$ 寫成二進位，例如 $13 = 8 + 4 + 1$，就依序走 $1$ 步、$4$ 步、
+$8$ 步。 這和第 1 本第~8~章快速冪把指數拆成二進位是同一個想法。
+
+\begin{code}{cpp}{倍增：從 x 走 k 步}
+const int LOG = 60;                    // 2^60 > 10^18
+vector<vector<int>> up(LOG, vector<int>(n + 1));
+up[0] = f;                             // 走 1 步
+for (int j = 1; j < LOG; j++) {
+    for (int x = 1; x <= n; x++) {
+        up[j][x] = up[j - 1][up[j - 1][x]];   // 走 2^(j-1) 步兩次
+    }
+}
+
+int jump(int x, long long k) {
+    for (int j = 0; k > 0; j++, k >>= 1) {
+        if (k & 1) {                   // k 的第 j 位是 1：走 2^j 步
+            x = up[j][x];
+        }
+    }
+    return x;
+}
+\end{code}
+
+建表是 $O(n \log K)$，每次詢問 $O(\log K)$，$K$ 是 $k$ 的上限。 它不需要知道圈
+在哪裡，尾巴和圈一視同仁。 代價是記憶體：$n = 2 \times 10^5$、$K = 10^{18}$ 時，
+表有 $60 \times 2 \times 10^5$ 個 \texttt{int}，大約 $48$ MB，先確認題目的記憶
+體限制。
+
+\subsection{記不下的時候}
+
+第 1 本 4.6 節最後說，狀態的種類太多、記不下每一步時，要另外想辦法。 函數圖上有一個只
+用幾個變數的方法，叫\textbf{龜兔賽跑}（Floyd's cycle detection）：烏龜一次走一
+步，兔子一次走兩步，從同一個起點出發。 兩者都進入圈之後，兔子每一步追近一格，
+一定會追上；追上時兔子比烏龜多走的步數剛好是整數圈。 這時把烏龜放回起點，兩個
+都改成一次一步，它們會剛好在圈的入口相遇，走了幾步就是尾巴長。 時間仍是
+$O(\mu + \lambda)$（$\mu$、$\lambda$ 是尾巴長和圈長），記憶體只要幾個變數。
+細節可以看本章的延伸閱讀；實作練習的「記不下的驗證碼紀錄」就是這種情況。
+
+\subsection{例題：兩台電子骰子何時同號}
+\label{sec:ex-dice}
+
+\textbf{題意}（\akiref{when-do-the-two-dice-agree}{兩台電子骰子何時同號}）
+
+\begin{itemize}
+\item 第一台骰子顯示 $0$ 到 $m_1 - 1$，照對照表 $f_1$ 換數字：這一秒是 $x$，下
+一秒是 $f_1(x)$。 第二台顯示 $0$ 到 $m_2 - 1$，照 $f_2$ 換。
+\item 第 $0$ 秒分別顯示 $x_0$、$y_0$，之後兩台每秒同時換一次。
+\item 求最小的 $t \ge 0$ 使兩台顯示的數字相同；永遠不會相同就輸出 $-1$。
+\item $m_1, m_2 \le 2000$。
+\end{itemize}
+
+例如 $f_1 = (1, 0, 0, 3)$、$x_0 = 2$，$f_2 = (1, 2, 4, 0, 1)$、$y_0 = 1$。 兩台
+依序顯示：
+
+\begin{center}
+\begin{tabular}{c|ccccccc}
+\toprule
+秒 $t$ & 0 & 1 & 2 & 3 & 4 & 5 & 6 \\
+\midrule
+第一台 & 2 & 0 & 1 & 0 & 1 & 0 & 1 \\
+第二台 & 1 & 2 & 4 & 1 & 2 & 4 & 1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+第 $6$ 秒都是 $1$，答案是 $6$。
+
+\textbf{想法}
+
+一秒一秒模擬，相同就輸出，這部分很直接。 難的是答案是 $-1$ 的時候：要模擬到什
+麼時候才能確定永遠不會相同？
+
+每一台骰子自己就是一張函數圖：數字是點，對照表是箭頭。 第一台從 $x_0$ 出發，走
+出一個 $\rho$；第二台也是。 但只看一台不夠：上表的第一台在第 $3$ 秒就回到第 $1$
+秒的 $0$，開始繞圈；第二台在第 $3$ 秒也回到第 $0$ 秒的 $1$。 兩台都在繞圈了，
+同號卻發生在第 $6$ 秒。 兩個圈的長度是 $2$ 和 $3$，兩台合起來要 $6$ 秒才會一起
+回到同一個組合。
+
+所以狀態要是兩台合起來的\textbf{一對數} $(x, y)$。 下一秒的 $(x, y)$ 只由這一秒
+的 $(x, y)$ 決定，所以這些數對也構成一張函數圖，有 $m_1 m_2$ 個點，最多
+$4 \times 10^6$ 個。 從 $(x_0, y_0)$ 出發同樣走出一個 $\rho$：最多 $m_1 m_2$ 步
+之內，一定會走到出現過的數對。 從那一刻起，之後的每一秒都和上次一模一樣。 如果
+在第一次重複之前都沒有同號，之後也不會有，答案是 $-1$。
+
+做法：開一個 $m_1 m_2$ 格的陣列，記哪些數對出現過，數對 $(x, y)$ 編成
+$x \cdot m_2 + y$。 每一秒先檢查是否相同，再檢查是否出現過，再往下走一步。
+
+同樣的模型也出現在別的地方：兩條固定班表的公車路線，問最早哪一天兩班車會停在
+同一站；兩個照固定規則切換狀態的號誌，問什麼時候會同時亮紅燈。 合起來看成一對
+狀態，就回到函數圖。
+
+\textbf{程式}
+
+\begin{example}[label=ex:dice]{cpp}{(dice.cpp) 兩台電子骰子何時同號}
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int m1, x, m2, y;
+    cin >> m1 >> x;
+    vector<int> f1(m1);
+    for (int &v : f1) {
+        cin >> v;
+    }
+    cin >> m2 >> y;
+    vector<int> f2(m2);
+    for (int &v : f2) {
+        cin >> v;
+    }
+    // 狀態是一對 (x, y)，編成 x * m2 + y；最多 m1 * m2 種
+    vector<bool> seen((long long)m1 * m2, false);
+    long long t = 0;
+    while (true) {
+        if (x == y) {                      // 先比相等：第 0 秒就可能相同
+            cout << t << '\n';
+            break;
+        }
+        long long id = (long long)x * m2 + y;
+        if (seen[id]) {                    // 這一對出現過：之後只會重演
+            cout << -1 << '\n';
+            break;
+        }
+        seen[id] = true;
+        x = f1[x];
+        y = f2[y];
+        t++;
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 2 \\
+1 0 0 3 \\
+5 1 \\
+1 2 4 0 1 \\
+}{
+6 \\
+}
+
+\begin{itemize}
+\item \texttt{vector<bool>} 每格只佔一個位元，$4 \times 10^6$ 格大約 $0.5$ MB。
+用 \texttt{vector<int>} 也只要 $16$ MB，都放得下。
+\item 數對的編號最大是 $m_1 m_2 - 1$，不會超過 \texttt{int}；寫成
+\texttt{long long} 是習慣，$m$ 再大一點時不必回頭改。
+\item 迴圈最多跑 $m_1 m_2 + 1$ 輪就會停，因為每一輪都標記一個新的數對，數對只有
+$m_1 m_2$ 種。
+\end{itemize}
+
+\textbf{複雜度}
+
+最多 $m_1 m_2 \le 4 \times 10^6$ 步，每步 $O(1)$。 最大的測試資料在本書測試的
+環境下約 $0.02$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{只看一台骰子}：用一台的數字當狀態，它重複就輸出 $-1$。 範例的第
+一台在第 $3$ 秒重複，這樣寫會印 \texttt{-1}。
+\item \textbf{憑感覺決定跑幾秒}：例如「每台最多 $m$ 種數字，跑 $m_1 + m_2$ 秒一
+定夠」。 輸入
+\begin{code}{text}{只跑 m1 + m2 秒會錯的輸入}
+3 0
+1 2 0
+6 3
+0 1 3 4 5 2
+\end{code}
+第一台在 $0, 1, 2$ 上繞長度 $3$ 的圈，第二台在 $3, 4, 5, 2$ 上繞長度 $4$ 的圈，
+只有數字 $2$ 是共同的，第一次同號在第 $11$ 秒。 只跑 $m_1 + m_2 = 9$ 秒會印
+\texttt{-1}。
+\item \textbf{只等第 $0$ 秒的數對再出現}：起點可能在尾巴上，之後再也不會出現。
+例如第一台 $f_1 = (1, 2, 0, 0)$ 從 $3$ 出發，$3$ 只出現在第 $0$ 秒。 答案是 $-1$
+時程式就停不下來。
+\item \textbf{先走一步再比較}：漏掉第 $0$ 秒。 $x_0 = y_0$ 時答案是 $0$，這樣寫
+會從第 $1$ 秒開始比，印出別的數字或 $-1$。
+\end{itemize}
+
+\section{本章常見錯誤}
+\label{sec:dsu-pitfalls}
+
+前面各節的錯誤，歸納起來是下面幾類。
+
+\begin{center}
+\begin{tabular}{p{0.24\linewidth}p{0.5\linewidth}p{0.16\linewidth}}
+\toprule
+錯誤 & 例子 & 見 \\
+\midrule
+資料沒存在根上 & 查詢時沒有先 \texttt{find}；已經同一群還再合併一次，人數重複加 &
+第~\ref{sec:ex-club}~節 \\
+樹太高 & 兩個改法都沒做；只做路徑壓縮時用遞迴 \texttt{find} &
+第~\ref{sec:dsu}~節 \\
+有向圖只記去過沒有 & 碰到已經結束的點就當成環 & 第~\ref{sec:cycle-directed}~節 \\
+不連通的圖只處理一塊 & 只從點 1 開始找環或上色 & 第~\ref{sec:cycle-directed}、
+\ref{sec:ex-cabinets}~節 \\
+衝突就停 & 群組沒走完，剩下的被當成新群組 & 第~\ref{sec:ex-cabinets}~節 \\
+狀態不完整 & 兩台骰子只看一台；以為一定會回到起點 & 第~\ref{sec:ex-dice}~節 \\
+遞迴太深 & 長鏈上遞迴的 DFS 上色、找環 & 第~\ref{sec:cycle-undirected}、
+\ref{sec:ex-cabinets}~節 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{本章練習}
+\label{sec:ch19-exercises}
+
+\begin{drills}[label=drills:ch19]
+\item 用範例~\ref{ex:repair-roads} 的並查集（按大小合併，一樣大時 \texttt{a} 接到
+\texttt{b} 底下，\texttt{find} 做路徑壓縮），$n = 6$，依序執行
+\texttt{unite(1, 2)}、\texttt{unite(3, 4)}、\texttt{unite(5, 6)}、
+\texttt{unite(1, 3)}、\texttt{unite(5, 1)}、\texttt{find(1)}。 每一步之後的
+\texttt{parent[1..6]} 是什麼？
+
+\item 一張無向圖有 $n$ 個點、$m$ 條邊，會依序\textbf{拆掉}所有的邊，每拆一條就
+要回答目前有幾個連通元件。 並查集不能拆邊，怎麼用並查集解這題？（提示：從最後
+一刻往回看。）
+
+\item 一張無向圖有 $n$ 個點、$m$ 條邊、$c$ 個連通元件，沒有重邊和自環。 用並查
+集依序加入這 $m$ 條邊，\texttt{unite} 會回傳幾次 \texttt{false}？ 這個數和「最
+少要拿掉幾條邊，圖上才不會有環」有什麼關係？
+
+\item 下面是有人寫的有向圖找環，\texttt{seen} 一開始全是 \texttt{false}，從每
+個還沒去過的點呼叫 \texttt{dfs}。 它錯在哪裡？ 給一組會讓它答錯的輸入，並說明
+怎麼改。
+\begin{code}{cpp}{練習 4}
+bool dfs(int u) {
+    seen[u] = true;
+    for (int v : adj[u]) {
+        if (seen[v] || dfs(v)) {
+            return true;
+        }
+    }
+    return false;
+}
+\end{code}
+
+\item 函數圖 $n = 8$，$f = (2, 3, 1, 3, 4, 7, 8, 6)$。
+\begin{enumerate}
+\item 畫出這張圖，寫出範例~\ref{ex:functional} 會印出的 \texttt{tail} 和
+\texttt{cycle}。
+\item 從點 5 出發走 $10^{18}$ 步，停在哪裡？
+\item 倍增的 \texttt{up[2][5]} 是多少？
+\end{enumerate}
+\end{drills}
+
+\section{實作練習}
+\label{sec:ch19-practice}
+
+下面是 Aki-Judge 上和本章相關的題目，依小節分組，難度的四階和前面各章相同。
+
+\begin{center}
+\begin{tabular}{llc}
+\toprule
+小節 & 題目 & 難度 \\
+\midrule
+並查集 & \akiref{club-mergers-and-total-points}{社團合併與總積分} & 暖身 \\
+ & \akiref{two-dorm-assignment-records}{兩棟宿舍的分配紀錄} & 實戰 \\
+ & \akiref{locker-block-assignment}{置物櫃區段分配} & 挑戰 \\
+\midrule
+找環 & \akiref{server-room-clusters-with-loops}{有繞圈線路的機房群} & 基本 \\
+ & \akiref{the-first-contradictory-rule}{第一條自相矛盾的排程規則} & 實戰 \\
+\midrule
+二分圖 & \akiref{cabinets-for-incompatible-chemicals}{不相容藥品分櫃} & 暖身 \\
+ & \akiref{same-team-or-not}{同隊與不同隊的說法} & 基本 \\
+ & \akiref{the-robot-that-never-stops}{不停站的導覽機器人} & 實戰 \\
+ & \akiref{balancing-two-stages}{兩個舞台的人數平衡} & 挑戰 \\
+\midrule
+函數圖與週期 & \akiref{the-code-word-on-day-k}{暗號字串的第 K 天} & 暖身 \\
+ & \akiref{when-do-the-two-dice-agree}{兩台電子骰子何時同號} & 基本 \\
+ & \akiref{the-shuttle-on-a-command-loop}{照指令表繞圈的接駁車} & 基本 \\
+ & \akiref{piggy-bank-range-totals}{存錢筒的區間總額} & 實戰 \\
+ & \akiref{the-k-th-water-stop}{第 K 次補水站} & 挑戰 \\
+ & \akiref{the-code-log-too-long-to-keep}{記不下的驗證碼紀錄} & 挑戰 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+本章的三題例題也在 Aki-Judge 上，讀完各節之後可以先自己寫一次再對照。 「兩棟
+宿舍的分配紀錄」和「同隊與不同隊的說法」都是同隊、不同隊的關係，可以用第
+~\ref{sec:dsu-parity}~小節預告的帶權並查集，也可以先建圖再上色，兩種都試試看。
+
+\section{讀完你應該會}
+\label{sec:ch19-checklist}
+
+\begin{itemize}
+\item 看到「邊一條一條加進來、隨時問同不同群」的題目，能寫出按大小合併加路徑壓
+縮的並查集，並把人數、總和這類資料存在根上。
+\item 能用並查集、數點和邊、DFS 三種方法判斷無向圖有沒有環，並依題目要的是
+「第幾條邊開始有環」「哪幾群有環」還是「環上有哪些點」來選。
+\item 能用三種狀態的 DFS 找出有向圖的一個環，說得出為什麼只記「去過沒有」會誤
+判。
+\item 能用 BFS 上色判斷二分圖，處理不連通的圖，並用奇環說明一張圖為什麼不能
+分成兩邊。
+\item 看到每個點只有一個「下一個」的題目，能畫出函數圖，一次算出每個點的尾巴長
+和圈長，並用週期或倍增求出第 $k$ 步的位置。
+\end{itemize}
+
+\textbf{延伸閱讀}（書末會整理完整的參考資料）
+
+\begin{itemize}
+\item Antti Laaksonen，\textit{Competitive Programmer's Handbook}，12.3 節與第
+15、16 章：找環、二分圖、並查集、函數圖（successor graph）的倍增和龜兔賽跑。
+\item Steven Halim 等，\textit{Competitive Programming 4}，Book 1，2.4.2 節與
+4.2.7、4.2.8 節：並查集的另一種寫法（按高度合併），以及二分圖和有向圖找環的
+整理。
+\item Thomas H. Cormen 等，\textit{Introduction to Algorithms}，第 4 版，第 19
+章：並查集的完整分析，包含 $\alpha(n)$ 從哪裡來。
+\end{itemize}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item 依序是：\texttt{unite(1, 2)} 後 \texttt{2 2 3 4 5 6}；\texttt{unite(3, 4)}
+後 \texttt{2 2 4 4 5 6}；\texttt{unite(5, 6)} 後 \texttt{2 2 4 4 6 6}；
+\texttt{unite(1, 3)}：兩個根 2、4 都是兩人，2 接到 4，得到
+\texttt{2 4 4 4 6 6}（\texttt{find(1)} 走 1、2 時，1 的 \texttt{parent} 本來就
+是根 2，壓縮不改變什麼）；\texttt{unite(5, 1)}：\texttt{find(5)} 是 6（兩人），
+\texttt{find(1)} 走 1、2、4，順便把 1 接到 4；6 比較小，接到 4，得到
+\texttt{4 4 4 4 6 4}；最後的 \texttt{find(1)} 不改變陣列。
+
+\item 倒過來看：最後一刻所有邊都拆光了，有 $n$ 個元件。 從最後一條被拆的邊開
+始，依拆除的相反順序一條一條\textbf{加回去}，用並查集維護元件數。 加回第 $i$ 條
+邊之前的元件數，就是「拆掉第 $i$ 條邊之後」的答案。 存起來，最後依原本的順序輸出。
+
+\item $m - (n - c)$ 次。 每次回傳 \texttt{true} 元件就少一個，從 $n$ 個變成 $c$ 個，
+剛好 $n - c$ 次，其他都是 \texttt{false}。 這也是最少要拿掉的邊數：每個元件留下
+一棵 $c_i - 1$ 條邊的樹，共留 $n - c$ 條，其他都要拿掉。
+
+\item 它把「已經去過」都當成環，沒有分辨 $v$ 是還在目前的路上，還是早就結束了。
+輸入 \texttt{3 3}、\texttt{1 2}、\texttt{1 3}、\texttt{3 2}（圖~\ref{fig:directed-cycle}
+左邊）沒有環，它從 1 走 2，回來再走 3，看到 2 已經去過，就回傳 \texttt{true}。
+改法是把 \texttt{seen} 換成三種狀態：進入時設 $1$，迴圈結束、回傳
+\texttt{false} 之前設 $2$；判斷條件改成 \texttt{state[v] == 1} 才算環，
+\texttt{state[v] == 0} 才往下走。
+
+\item
+\begin{enumerate}
+\item 圈有兩個：$1 \to 2 \to 3 \to 1$（長 $3$）和 $6 \to 7 \to 8 \to 6$（長 $3$）。
+4 指向 3，5 指向 4。 輸出
+\texttt{tail: 0 0 0 1 2 0 0 0} 和 \texttt{cycle: 3 3 3 3 3 3 3 3}。
+\item 尾巴長 $2$、圈長 $3$，第 $10^{18}$ 步和第 $2 + (10^{18} - 2) \bmod 3 = 4$ 步
+相同（$10^{18} \bmod 3 = 1$）：$5 \to 4 \to 3 \to 1 \to 2$，停在 2。
+\item 從 5 走 $4$ 步，也是 2。
+\end{enumerate}
+\end{enumerate}

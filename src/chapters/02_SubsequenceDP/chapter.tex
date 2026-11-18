@@ -1,0 +1,1316 @@
+\chapter{子序列 DP}
+\label{ch:subseq}
+
+週末你和朋友各自排了逛夜市的順序。 你想照這個順序吃：雞排、珍奶、臭豆腐、
+蚵仔煎、烤玉米、地瓜球、糖葫蘆。 朋友的順序是：臭豆腐、雞排、蚵仔煎、珍奶、
+地瓜球、烤玉米、糖葫蘆。 兩個人想一起逛一段，一起吃的攤位要同時符合兩人各自
+的先後順序；自己清單上的攤位可以跳過，跳過的那幾攤之後再自己去。 最多能一起
+吃幾攤？ 往下讀之前先試一試：先挑雞排的話，接下來還能一起吃哪幾攤？
+
+從一串東西裡刪掉一些（也可以都不刪），剩下的保持原來的先後，叫做原來那串的
+\textbf{子序列}（subsequence）。 子序列可以跳著挑；如果規定一定要挑相鄰的一
+段，那叫\textbf{子字串}（substring），是《C++ 演算法解題 1：APCS 實作題核心》（以下簡稱第 1 本）第~5~章前綴和、滑動視窗處理的對象。
+上面的問題是在找兩份清單共同的子序列裡最長的一個。 這一章處理三種跟子序列有
+關的問題：
+
+\begin{itemize}
+\item 一串數字裡，最長的遞增子序列。 長度怎麼算，銜接書已經教過；這一章補上
+「把子序列本身印出來」和「每個位置各自的答案」。
+\item 兩串東西的共同子序列，以及把一串改成另一串最少要改幾次。
+\item 一串東西和它自己倒過來的那一串：最長的回文子序列。
+\end{itemize}
+
+三題例題分別練最長遞增子序列的延伸、把共同子序列的「相等」換成別的條件並且
+只留兩列表格，以及在一長串文字裡找最像某句話的一段。
+
+算上第 1 本的兩章，這一章是動態規劃的第四章。 第 1 本第~9~章的四件事（狀態、轉移、初始值、計算順序）、
+第 1 本第~10~章的二維表格和滾動陣列都直接拿來用，不再重講。 最長遞增子序列的兩種寫
+法在《C++ 程式設計：給學過 C 的人》（以下簡稱銜接書）第~10~章 10.3 節，本章
+只用一個框回顧；\texttt{lower\_bound} 在銜接書第~9~章。 沒讀過銜接書的讀者，
+只要知道 \texttt{lower\_bound(v.begin(), v.end(), x)} 會在排好的
+\texttt{v} 裡找到第一個 $\ge x$ 的位置，就能讀這一章。
+
+\section{子序列問題的兩種狀態}
+\label{sec:ss-states}
+
+先想最直接的做法。 長度 $n$ 的一串，每個元素可以選或不選，一共有 $2^n$ 個子
+序列。 要找最長的遞增子序列，可以一個一個檢查；要找兩串的最長共同子序列，可
+以把第一串的每個子序列拿去第二串裡找找看。 $n = 20$ 時大約一百萬個，還來得及；
+$n = 40$ 就超過一兆。 這一章的題目，$n$ 常常到幾千甚至 $2 \times 10^5$，一定
+要換成動態規劃。 不過小範圍的暴力解仍然要寫，用來和動態規劃的程式比對。
+
+子序列的動態規劃，狀態幾乎都是下面兩種之一：
+
+\begin{center}
+\begin{tabular}{p{0.2\linewidth}p{0.42\linewidth}p{0.28\linewidth}}
+\toprule
+題目的形狀 & 狀態 & 例子 \\
+\midrule
+一串，挑出的子序列要滿足某種前後關係 & \texttt{f[i]}：最後一個挑的是第 $i$
+個時，最好能多好 & 最長遞增子序列 \\
+兩串，兩邊各挑一個子序列互相對應 & \texttt{f[i][j]}：只看第一串的前 $i$ 個和
+第二串的前 $j$ 個時，最好能多好 & 最長共同子序列、編輯距離、回文子序列 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+兩種狀態都在問「最後一步」：第一種問最後一個挑的是誰、它前面接的是誰；第二種
+看兩串各自的最後一個元素，它們配在一起，還是其中一個沒用到。 這一章的每個轉移
+式都是這樣想出來的。
+
+\section{最長遞增子序列：從長度到序列本身}
+\label{sec:ss-lis}
+
+\begin{bridgerecap}[銜接書 10.3 節：最長遞增子序列的兩種寫法]
+\textbf{最長遞增子序列}（longest increasing subsequence，LIS）：挑出的數字保持
+原來的先後，而且嚴格遞增，最長能挑幾個。
+\begin{itemize}
+\item $O(n^2)$：\texttt{dp[i]} 是以 \texttt{a[i]} 結尾的最長長度，等於所有
+$j < i$、\texttt{a[j] < a[i]} 的 \texttt{dp[j] + 1} 裡最大的，沒有就是 $1$。
+答案是所有 \texttt{dp[i]} 的最大值。
+\item $O(n \log n)$：\texttt{tail[k]} 是「長度 $k + 1$ 的遞增子序列，結尾最小
+可以是多少」。 \texttt{tail} 一定遞增；每讀一個 $x$，用
+\texttt{lower\_bound} 找第一個 $\ge x$ 的結尾，找到就換成 $x$，找不到就把 $x$
+接在最後。 \texttt{tail} 的長度就是答案。
+\item 允許相等（不下降）時，把 \texttt{lower\_bound} 換成 \texttt{upper\_bound}。
+\item \texttt{tail} 只保證長度對，它本身不一定是一個子序列。
+\end{itemize}
+\end{bridgerecap}
+
+這一節補上兩件事：把一個最長的子序列真的印出來，以及算出「以每個位置結尾」的
+最長長度。 第二件事是這一節例題的關鍵。
+
+\subsection{印出一個最長的}
+\label{sec:ss-lis-path}
+
+$O(n^2)$ 的寫法很好改：算 \texttt{dp[i]} 時，記下是哪一個 $j$ 給出最大值，存
+在 \texttt{from[i]}。 最後從 \texttt{dp} 最大的那個位置出發，沿著
+\texttt{from} 往回走，走到 $-1$ 為止，經過的數字倒過來就是答案。
+
+\begin{code}{cpp}{O(n²) 的寫法多記一個 from}
+vector<int> dp(n, 1), from(n, -1);
+for (int i = 0; i < n; i++) {
+    for (int j = 0; j < i; j++) {
+        if (a[j] < a[i] && dp[j] + 1 > dp[i]) {
+            dp[i] = dp[j] + 1;
+            from[i] = j;        // a[i] 接在 a[j] 後面
+        }
+    }
+}
+\end{code}
+
+$O(n \log n)$ 的寫法也可以記 \texttt{from}，只是要多記一樣東西。
+\texttt{a[i]} 放進 \texttt{tail[k]} 時，它的意思是「\texttt{a[i]} 可以接在某
+個長度 $k$ 的遞增子序列後面」。 那個長度 $k$ 的子序列，結尾就是現在的
+\texttt{tail[k - 1]}；但 \texttt{tail} 只存了值，不知道它在哪個位置。 所以另
+外開一個 \texttt{tailAt}，和 \texttt{tail} 同步更新，記下每個結尾在原數列的
+位置。
+
+\begin{example}[label=ex:ss-lis-path]{cpp}{(lis\_path.cpp) 印出一個最長遞增子序列}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+    vector<int> a(n);
+    for (int &x : a) {
+        cin >> x;
+    }
+    vector<int> tail;        // tail[k]：長度 k + 1 的最小結尾（值）
+    vector<int> tailAt;      // tailAt[k]：這個結尾在 a 的哪個位置
+    vector<int> from(n, -1); // from[i]：a[i] 接在誰後面，-1 是開頭
+    for (int i = 0; i < n; i++) {
+        auto it = lower_bound(tail.begin(), tail.end(), a[i]);
+        int k = it - tail.begin();
+        if (k == (int)tail.size()) {
+            tail.push_back(a[i]);
+            tailAt.push_back(i);
+        } else {
+            tail[k] = a[i];
+            tailAt[k] = i;
+        }
+        if (k > 0) {
+            from[i] = tailAt[k - 1];   // 接在長度 k 的最小結尾後面
+        }
+    }
+    vector<int> seq;
+    for (int i = tailAt.back(); i != -1; i = from[i]) {
+        seq.push_back(a[i]);
+    }
+    reverse(seq.begin(), seq.end());
+    cout << seq.size() << '\n';
+    for (int i = 0; i < (int)seq.size(); i++) {
+        cout << seq[i] << (i + 1 < (int)seq.size() ? ' ' : '\n');
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+8 \\
+7 2 8 4 9 5 3 6 \\
+}{
+4 \\
+2 4 5 6 \\
+}
+
+範例每一輪結束時的狀態如下（位置從 $0$ 開始數）：
+
+\begin{center}
+\begin{tabular}{cccllc}
+\toprule
+$i$ & \texttt{a[i]} & $k$ & \texttt{tail} & \texttt{tailAt} & \texttt{from[i]} \\
+\midrule
+0 & 7 & 0 & 7 & 0 & $-1$ \\
+1 & 2 & 0 & 2 & 1 & $-1$ \\
+2 & 8 & 1 & 2 8 & 1 2 & 1 \\
+3 & 4 & 1 & 2 4 & 1 3 & 1 \\
+4 & 9 & 2 & 2 4 9 & 1 3 4 & 3 \\
+5 & 5 & 2 & 2 4 5 & 1 3 5 & 3 \\
+6 & 3 & 1 & 2 3 5 & 1 6 5 & 1 \\
+7 & 6 & 3 & 2 3 5 6 & 1 6 5 7 & 5 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+最後 \texttt{tailAt} 的最後一格是 $7$，往回走：位置 $7$（值 $6$）、
+\texttt{from[7]} $= 5$（值 $5$）、\texttt{from[5]} $= 3$（值 $4$）、
+\texttt{from[3]} $= 1$（值 $2$）、\texttt{from[1]} $= -1$ 停下。 倒過來是
+\texttt{2 4 5 6}。 對照最後的 \texttt{tail} $=$ \texttt{2 3 5 6}：其中的 $3$
+在位置 $6$，排在 $5$（位置 $5$）後面，不是合法的子序列，所以真的不能直接印
+\texttt{tail}。
+
+\begin{itemize}
+\item \texttt{from[i]} 在第 $i$ 輪就決定，之後不會再改。 後來
+\texttt{tailAt[k - 1]} 換成別的位置，也不影響已經記下的 \texttt{from[i]}：當
+時那條長度 $k$ 的子序列仍然存在，只是 \texttt{tail} 不再記它。
+\item 往回走的起點是 \texttt{tailAt.back()}，也就是目前最長的那一種長度的最小
+結尾。 任何一個長度等於答案的結尾都可以當起點，挑這一個最方便。
+\item \texttt{(int)tail.size()}：\texttt{size()} 的型別是不帶正負號的
+\texttt{size\_t}，和 \texttt{int} 比較時 \texttt{-Wall -Wextra} 會警告，先轉
+成 \texttt{int}。
+\end{itemize}
+
+這個範例的最長遞增子序列只有 \texttt{2 4 5 6} 一個，但一般來說可能有好幾個，
+這支程式只印其中一個。 題目如果要求印出特定的一個（例如字典序最小），回溯的方
+式就要照題目的規定重新設計，不能直接用這支程式。
+
+\subsection{以每個位置結尾的長度}
+\label{sec:ss-lis-each}
+
+範例~\ref{ex:ss-lis-path} 還藏著一個副產品：\texttt{a[i]} 放進 \texttt{tail[k]}
+時，$k + 1$ 剛好就是「以 \texttt{a[i]} 結尾的最長遞增子序列」的長度，也就是
+$O(n^2)$ 寫法裡的 \texttt{dp[i]}。 上表 $k$ 那一欄加一，得到
+$1, 1, 2, 2, 3, 3, 2, 4$，和用 $O(n^2)$ 算出來的完全一樣。 所以 $n$ 到
+$2 \times 10^5$、又需要每個位置各自的長度時，不用退回 $O(n^2)$。
+
+\begin{whybox}[$k + 1$ 為什麼剛好是以 a[i] 結尾的最長長度]
+\textbf{至少 $k + 1$。} $k > 0$ 時，\texttt{lower\_bound} 回傳 $k$，表示
+\texttt{tail[k - 1]} $<$ \texttt{a[i]}；而 \texttt{tail[k - 1]} 是某條長度
+$k$ 的遞增子序列的結尾，位置在 $i$ 前面。 把 \texttt{a[i]} 接上去，就是長度
+$k + 1$。
+
+\textbf{不會更多。} 假設有一條長度 $k + 2$ 的遞增子序列以 \texttt{a[i]} 結尾，
+它的倒數第二個數 \texttt{a[j]}（$j < i$，\texttt{a[j]} $<$ \texttt{a[i]}）是
+一條長度 $k + 1$ 的結尾。 處理完 \texttt{a[j]} 之後，\texttt{tail[k]} 就存在，
+而且不超過 \texttt{a[j]}；\texttt{tail} 的每一格只會變小，所以處理
+\texttt{a[i]} 時 \texttt{tail[k]} $\le$ \texttt{a[j]} $<$ \texttt{a[i]}。
+這樣 \texttt{lower\_bound} 不會停在 $k$，矛盾。
+\end{whybox}
+
+\subsection{例題：指定要唱的那首歌}
+\label{sec:ss-ex-sing}
+
+\textbf{題意}（\akiref{the-song-i-must-sing}{指定要唱的那首歌}）
+
+\begin{itemize}
+\item 歌單上依序有 $n$ 首歌，第 $i$ 首的難度是 $a_i$。
+\item 參賽者從歌單挑一些歌照順序唱，難度要\textbf{嚴格}遞增，至少唱一首。
+\item 有 $q$ 位參賽者，第 $j$ 位指定第 $p_j$ 首一定要唱。 對每一位，輸出在包
+含第 $p_j$ 首的前提下最多能唱幾首。
+\item $n, q \le 2 \times 10^5$，難度在 $1$ 到 $10^9$ 之間。
+\end{itemize}
+
+例如難度依序是 $3, 7, 2, 5, 6, 1, 8, 4$。 指定第 $1$ 首（難度 $3$），可以唱
+$3, 5, 6, 8$，共 $4$ 首；指定第 $2$ 首（難度 $7$），前面只能接 $3$，後面只能
+接 $8$，共 $3$ 首，雖然不指定的話能唱到 $4$ 首。
+
+\textbf{想法}
+
+最直接的做法：每一位參賽者都重算一次。 把「一定要唱第 $p$ 首」加進
+$O(n^2)$ 的動態規劃不難，但 $q$ 次就是 $O(qn^2)$；就算每次用 $O(n \log n)$，
+$q \cdot n \log n$ 也大約 $7 \times 10^{11}$，來不及。 要找一個先算好、每個
+詢問直接查表的做法。
+
+在第 $p$ 首把挑出來的歌切成兩段：第 $p$ 首和它前面的歌，是一條\textbf{以第
+$p$ 首結尾}的遞增子序列；第 $p$ 首和它後面的歌，是一條\textbf{以第 $p$ 首開
+頭}的遞增子序列。 兩段只在第 $p$ 首相接，前一段怎麼挑完全不影響後一段能怎麼
+挑，因為後一段只要求比 $a_p$ 大、位置在 $p$ 後面。 所以兩段可以各自取最長的：
+設 $L_p$ 是以第 $p$ 首結尾的最長長度、$R_p$ 是以第 $p$ 首開頭的最長長度，答
+案是 $L_p + R_p - 1$（第 $p$ 首算了兩次）。
+
+$L_p$ 就是第~\ref{sec:ss-lis-each}~小節的 $k + 1$，對整個陣列跑一次就有全部的
+$L$。 $R_p$ 反過來想：從右往左讀，「以第 $p$ 首開頭、往右嚴格遞增」變成「以第
+$p$ 首結尾、往左嚴格\textbf{遞減}」。 把難度都加上負號，遞減又變回遞增，可以
+直接用同一個函式。 範例的兩個方向：
+
+\begin{center}
+\begin{tabular}{l*{8}{c}}
+\toprule
+第幾首 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 \\
+難度 & 3 & 7 & 2 & 5 & 6 & 1 & 8 & 4 \\
+\midrule
+$L$（以它結尾） & 1 & 2 & 1 & 2 & 3 & 1 & 4 & 2 \\
+$R$（以它開頭） & 4 & 2 & 4 & 3 & 2 & 2 & 1 & 1 \\
+$L + R - 1$ & 4 & 3 & 4 & 4 & 4 & 2 & 4 & 2 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+同樣的模型也出現在別的地方：規劃一條一定要經過某個景點、而且一路往上爬的登山
+路線；在一年的營收紀錄裡，找包含某一個月的最長成長紀錄。
+
+\textbf{程式}
+
+\begin{example}[label=ex:ss-sing]{cpp}{(must\_sing.cpp) 指定要唱的那首歌}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+// 回傳 len：len[i] 是以 v[i] 結尾的最長嚴格遞增子序列長度
+vector<int> endingLengths(const vector<int> &v) {
+    vector<int> tail, len(v.size());
+    for (int i = 0; i < (int)v.size(); i++) {
+        auto it = lower_bound(tail.begin(), tail.end(), v[i]);
+        int k = it - tail.begin();
+        len[i] = k + 1;                 // v[i] 接在長度 k 的後面
+        if (k == (int)tail.size()) {
+            tail.push_back(v[i]);
+        } else {
+            tail[k] = v[i];
+        }
+    }
+    return len;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n;
+    cin >> n;
+    vector<int> a(n);
+    for (int &x : a) {
+        cin >> x;
+    }
+    vector<int> endAt = endingLengths(a);
+    // 從右往左讀、難度取負號：「往右嚴格遞增」變成「往左嚴格遞增」
+    vector<int> rev(n);
+    for (int i = 0; i < n; i++) {
+        rev[i] = -a[n - 1 - i];
+    }
+    vector<int> revLen = endingLengths(rev);
+    int q;
+    cin >> q;
+    while (q--) {
+        int p;
+        cin >> p;
+        p--;                                    // 改成從 0 開始
+        int startAt = revLen[n - 1 - p];   // 以 a[p] 開頭的長度
+        cout << endAt[p] + startAt - 1 << '\n';   // a[p] 算了兩次
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+8 \\
+3 7 2 5 6 1 8 4 \\
+4 \\
+1 2 6 8 \\
+}{
+4 \\
+3 \\
+2 \\
+2 \\
+}
+
+\begin{itemize}
+\item \texttt{rev[i]} 是原本的第 $n - 1 - i$ 首，所以原本第 $p$ 首在
+\texttt{rev} 裡是第 $n - 1 - p$ 個。 兩個方向的位置換算，寫錯一格就全部錯開，
+寫完先用範例對一次表格。
+\item 難度最小是 $1$，加負號之後在 $-10^9$ 到 $-1$ 之間，\texttt{int} 裝得下。
+如果難度可能是 $-2^{31}$，取負號會溢位，那時改用 \texttt{long long}，或把
+\texttt{lower\_bound} 的比較改成 \texttt{greater<int>()}。
+\item 一位參賽者只要查兩個數，所以詢問再多都不怕。
+\end{itemize}
+
+\textbf{複雜度}
+
+兩次 \texttt{endingLengths} 各 $O(n \log n)$，每個詢問 $O(1)$，總共
+$O(n \log n + q)$。 $n = q = 2 \times 10^5$ 時，二分搜尋大約
+$2 \times 2 \times 10^5 \times 18 \approx 7 \times 10^6$ 次比較。 最大的測試資
+料在本書測試的環境下約 $0.1$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{反方向用了 \texttt{upper\_bound}}：從右往左那一次用
+\texttt{upper\_bound}，等於允許後面的歌和第 $p$ 首一樣難。 輸入
+\begin{code}{text}{反方向用 upper\_bound 會錯的輸入}
+6
+2 5 5 3 5 6
+4
+2 3 4 6
+\end{code}
+正確的輸出是 \texttt{3 3 4 4}（每行一個），這樣寫會印出 \texttt{5 4 4 4}。 指
+定第 $2$ 首（難度 $5$）時，它把後面兩首難度 $5$ 的歌也接上去，唱成
+$2, 5, 5, 5, 6$。 加負號之後，「後面要比較難」仍然是嚴格的，兩個方向都要用
+\texttt{lower\_bound}。
+\item \textbf{忘了減一}：寫成 \texttt{endAt[p] + startAt}，第 $p$ 首被算了兩次，
+範例印出 \texttt{5 4 3 3}，每個都多 $1$。
+\item \textbf{把 \texttt{tail} 的長度當成以它結尾的長度}：先更新
+\texttt{tail}，再寫 \texttt{len[i] = tail.size()}。 \texttt{tail.size()} 是
+「到目前為止的最長長度」，不一定是以 \texttt{v[i]} 結尾的；範例的第 $2$ 首
+（難度 $7$）算對，第 $3$ 首（難度 $2$）就被算成 $2$，程式印出
+\texttt{4 5 4 4}。
+\end{itemize}
+
+\section{最長共同子序列}
+\label{sec:ss-lcs}
+
+兩串 $A$、$B$ 的\textbf{共同子序列}，是同時是兩串子序列的序列；最長的那一個叫
+\textbf{最長共同子序列}（longest common subsequence，LCS）。 章首的夜市就是在
+找兩份清單的最長共同子序列。 把它想成配對也可以：在 $A$ 和 $B$ 之間畫線，每
+條線連起兩個相同的元素，每個元素最多連一條，而且線不能交叉。 線最多能畫幾條，
+就是最長共同子序列的長度。
+
+\subsection{表格怎麼填}
+\label{sec:ss-lcs-table}
+
+照第~\ref{sec:ss-states}~節的第二種狀態：
+
+\begin{itemize}
+\item \textbf{狀態}：\texttt{f[i][j]} 是 $A$ 的前 $i$ 個和 $B$ 的前 $j$ 個的最
+長共同子序列長度。 $A$ 的第 $i$ 個寫成 $a_i$，在程式裡是 \texttt{a[i - 1]}。
+\item \textbf{轉移}：看兩串最後的 $a_i$ 和 $b_j$。
+  \begin{itemize}
+  \item $a_i = b_j$：讓它們配在一起，前面剩下 $A$ 的前 $i - 1$ 個和 $B$ 的前
+  $j - 1$ 個，\texttt{f[i][j] = f[i - 1][j - 1] + 1}。
+  \item $a_i \ne b_j$：它們不可能互相配對，所以至少有一個完全沒用到。 $a_i$
+  沒用到，答案是 \texttt{f[i - 1][j]}；$b_j$ 沒用到，答案是
+  \texttt{f[i][j - 1]}。 兩者取大的。
+  \end{itemize}
+\item \textbf{初始值}：\texttt{f[0][j] = f[i][0] = 0}，有一串是空的，就沒有東
+西可以配。
+\item \textbf{計算順序}：每一格用到上、左、左上三格，照列由上而下、每列由左而
+右填，和第 1 本第~10~章的格子一樣。
+\end{itemize}
+
+$a_i \ne b_j$ 的情況為什麼「至少有一個沒用到」？ 如果兩個都有用到，$a_i$ 配到
+$B$ 的某個 $b_{j'}$（$j' < j$），$b_j$ 配到 $A$ 的某個 $a_{i'}$（$i' < i$），
+這兩條線一條從 $A$ 的最右邊往左下連、一條從 $B$ 的最右邊往左上連，一定交叉。
+
+$a_i = b_j$ 時直接配，會不會錯過更好的？ 不會。 任取一個最長的配法：如果
+$a_i$ 和 $b_j$ 都沒配，加上這條線就更長了，不可能；兩個都配給了別人，那兩條線
+會交叉，也不可能；剩下的情況是其中一個配給了別人，例如 $a_i$ 配了 $b_{j'}$，
+就把那條線改成連到 $b_j$。 $b_j$ 在 $b_{j'}$ 右邊，
+而且是 $B$ 的最後一個，新的線不會和其他線交叉，條數不變。 所以一定有一個最長的
+配法讓 $a_i$ 和 $b_j$ 配在一起。
+
+下圖是 $A = $ \texttt{STREAM}、$B = $ \texttt{MASTER} 填好的表。 兩串用的字母
+完全相同，只是順序不同，最長共同子序列卻只有 $3$。
+
+\begin{center}
+\begin{tikzpicture}[x=0.66cm, y=0.66cm,
+    g/.style={draw=black!55, minimum size=0.66cm, inner sep=0pt, font=\small\ttfamily},
+    pth/.style={g, fill=black!10},
+    hit/.style={g, draw=memStroke, thick, fill=memFill},
+    lbl/.style={font=\small\ttfamily}]
+\foreach \c [count=\j from 1] in {M,A,S,T,E,R} { \node[lbl] at (\j,1) {\c}; }
+\foreach \c [count=\i from 1] in {S,T,R,E,A,M} { \node[lbl] at (-1,-\i) {\c}; }
+\foreach \row [count=\r from 0] in {{0,0,0,0,0,0,0},{0,0,0,1,1,1,1},{0,0,0,1,2,2,2},{0,0,0,1,2,2,3},{0,0,0,1,2,3,3},{0,0,1,1,2,3,3},{0,1,1,1,2,3,3}} {
+  \foreach \v [count=\c from 0] in \row {
+    \node[g] at (\c,-\r) {\v};
+  }
+}
+\foreach \p in {(6,-6),(6,-5),(6,-4),(5,-2),(2,0)} { \node[pth] at \p {}; }
+\node[pth] at (6,-6) {3}; \node[pth] at (6,-5) {3}; \node[pth] at (6,-4) {3};
+\node[pth] at (5,-2) {2}; \node[pth] at (2,0) {0};
+\node[hit] at (6,-3) {3}; \node[hit] at (4,-2) {2}; \node[hit] at (3,-1) {1};
+\node[idxlbl] at (0,1) {$j = 0$};
+\node[idxlbl, left] at (-1.3,0) {$i = 0$};
+\end{tikzpicture}
+\diagcaption{$A = $ \texttt{STREAM}（列）、$B = $ \texttt{MASTER}（行）的
+\texttt{f[i][j]}。 灰色和橘色是從右下角往回走經過的格子，橘色是配對的地方，
+讀出 \texttt{S}、\texttt{T}、\texttt{R}。}
+\label{fig:ss-lcs-table}
+\end{center}
+
+\subsection{從表格還原}
+\label{sec:ss-lcs-path}
+
+要印出共同子序列本身，從右下角 \texttt{f[n][m]} 往回走，每一步照填表時的理由
+倒推：
+
+\begin{itemize}
+\item $a_i = b_j$：這一對配在一起，把這個字記下來，走到左上
+$(i - 1, j - 1)$。
+\item $a_i \ne b_j$：答案來自上面或左邊比較大的那一格，就往那裡走。 一樣大時
+走哪一邊都可以，但要固定一種規則。
+\end{itemize}
+
+走到某一串用完（$i = 0$ 或 $j = 0$）就停。 記下來的字是倒著的，最後反轉。
+
+\begin{example}[label=ex:ss-lcs-path]{cpp}{(lcs\_path.cpp) 最長共同子序列的長度和一個例子}
+#include <algorithm>
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+int main() {
+    string a, b;
+    cin >> a >> b;
+    int n = a.size(), m = b.size();
+    // f[i][j]：a 的前 i 個字和 b 的前 j 個字，最長共同子序列的長度
+    vector<vector<int>> f(n + 1, vector<int>(m + 1, 0));
+    for (int i = 1; i <= n; i++) {
+        for (int j = 1; j <= m; j++) {
+            if (a[i - 1] == b[j - 1]) {
+                f[i][j] = f[i - 1][j - 1] + 1;
+            } else {
+                f[i][j] = max(f[i - 1][j], f[i][j - 1]);
+            }
+        }
+    }
+    // 從右下角往回走，倒著收集配對的字
+    string common;
+    int i = n, j = m;
+    while (i > 0 && j > 0) {
+        if (a[i - 1] == b[j - 1]) {
+            common += a[i - 1];
+            i--;
+            j--;
+        } else if (f[i - 1][j] >= f[i][j - 1]) {
+            i--;                        // a 的第 i 個字沒用到
+        } else {
+            j--;                        // b 的第 j 個字沒用到
+        }
+    }
+    reverse(common.begin(), common.end());
+    cout << f[n][m] << '\n' << common << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+STREAM MASTER \\
+}{
+3 \\
+STR \\
+}
+
+照圖~\ref{fig:ss-lcs-table} 走一次：從 $(6, 6)$ 開始，\texttt{M} 和
+\texttt{R} 不同，上面和左邊都是 $3$，規則是一樣大時往上，走到 $(5, 6)$、再到
+$(4, 6)$；$(3, 6)$ 的 \texttt{R} 和 \texttt{R} 相同，記下 \texttt{R}，走到
+$(2, 5)$；\texttt{T} 和 \texttt{E} 不同，上面 $1$、左邊 $2$，往左到 $(2, 4)$，
+記下 \texttt{T}；再到 $(1, 3)$ 記下 \texttt{S}，走到 $(0, 2)$ 停下。
+
+\texttt{STE} 也是長度 $3$ 的共同子序列。 一樣大時改成往左走，就會印出它（本章
+練習第~2~題）。 題目只要長度時，這些都不用管；要印出子序列時，先看題目規定印
+哪一個。
+
+\begin{itemize}
+\item 還原要用到整張表，所以這支程式沒有省記憶體。 下一節的滾動陣列只能求長
+度。
+\item 往回走最多 $n + m$ 步，比填表的 $nm$ 快得多。
+\end{itemize}
+
+\subsection{其中一串沒有重複時}
+\label{sec:ss-lcs-lis}
+
+回到章首的夜市。 把你的清單依序編號：雞排 $1$、珍奶 $2$、臭豆腐 $3$、蚵仔煎
+$4$、烤玉米 $5$、地瓜球 $6$、糖葫蘆 $7$。 朋友的清單換成編號是
+\[
+3,\ 1,\ 4,\ 2,\ 6,\ 5,\ 7.
+\]
+一起吃的攤位，在朋友的清單裡照順序出現，在你的清單裡也要照順序，也就是編號要
+遞增。 所以答案是這串編號的最長遞增子序列：$1, 4, 6, 7$（雞排、蚵仔煎、地瓜
+球、糖葫蘆），共 $4$ 攤。 $1, 2, 5, 7$ 也可以。
+
+這個轉換只要求\textbf{其中一串沒有重複}：每個元素在那一串裡只有一個位置，另
+一串的元素換成這個位置（不在那一串裡的直接丟掉），共同子序列就變成位置遞增的
+子序列。 一般的最長共同子序列要 $O(nm)$，兩串都到 $2 \times 10^5$ 時有
+$4 \times 10^{10}$ 格，做不到；換成最長遞增子序列只要 $O(n \log n)$。 兩串都
+有重複時，同一個元素有好幾個位置可以選，這個轉換就不成立了。
+
+\section{滾動陣列：只留兩列}
+\label{sec:ss-rolling}
+
+兩串各 $5000$ 個時，最長共同子序列的表有 $5001 \times 5001$ 格，計算大約
+$2500$ 萬次，很快；但一格 \texttt{int} 是 $4$ 位元組，整張表大約 $100$ MB。
+記憶體限制比這小的時候，就要用第 1 本第~10~章 10.3 節的滾動陣列。
+
+看轉移式，第 $i$ 列只用到第 $i - 1$ 列和第 $i$ 列自己，所以留兩列就夠：
+\texttt{prev} 是第 $i - 1$ 列，\texttt{cur} 是正在填的第 $i$ 列，填完一列就
+\texttt{swap(prev, cur)}。 記憶體從 $O(nm)$ 變成 $O(m)$。
+
+想只留一列，要多注意一件事。 最長共同子序列用到左上角 \texttt{f[i-1][j-1]}，
+由左往右填到第 $j$ 格時，\texttt{f[j - 1]} 已經被換成第 $i$ 列的值，左上角的
+舊值不見了。 第 1 本第~10~章 10.3 節最後提過這種情況：用一個變數在被蓋掉之前先存起
+來。
+
+\begin{code}{cpp}{只留一列：用 diag 存住左上角}
+vector<int> f(m + 1, 0);
+for (int i = 1; i <= n; i++) {
+    int diag = 0;                 // 上一列的 f[j - 1]，也就是左上角
+    for (int j = 1; j <= m; j++) {
+        int up = f[j];            // 上一列的 f[j]，等一下會被蓋掉
+        if (a[i - 1] == b[j - 1]) {
+            f[j] = diag + 1;
+        } else {
+            f[j] = max(up, f[j - 1]);
+        }
+        diag = up;                // 下一格的左上角，就是這一格的上面
+    }
+}
+\end{code}
+
+兩列的寫法多用一列記憶體，但每一格「讀的是哪一列」一目了然；一列的寫法省一
+半，要小心變數更新的先後。 記憶體夠的時候，建議用兩列。
+
+滾動陣列丟掉了前面的列，就沒辦法照第~\ref{sec:ss-lcs-path}~小節的方法還原。
+題目同時要求印出子序列、記憶體又放不下整張表時，需要更進一步的技巧，超出本書
+的範圍。
+
+\subsection{例題：兩座測站的容許誤差比對}
+\label{sec:ss-ex-stations}
+
+\textbf{題意}（\akiref{cross-checking-two-weather-stations}{兩座測站的容許誤差比對}）
+
+\begin{itemize}
+\item 測站 A 依時間記錄了 $n$ 筆讀數 $a_1, \ldots, a_n$，測站 B 記錄了 $m$ 筆
+$b_1, \ldots, b_m$。
+\item 給定容許誤差 $D$，$|a_i - b_j| \le D$ 時說兩筆讀數「吻合」。
+\item 挑出一些配對 $(i, j)$，每對都要吻合，兩邊的編號都要嚴格遞增（配對不交
+叉，每筆讀數最多用一次）。 求最多能挑幾對。
+\item $n, m \le 5000$，讀數和 $D$ 在 $0$ 到 $10^9$ 之間，記憶體限制 $32$ MB。
+\end{itemize}
+
+例如 $D = 2$，$a = 12, 15, 9, 20, 14$，$b = 10, 17, 13, 21, 8, 15$。 可以挑
+$12$ 配 $10$、$15$ 配 $13$、$20$ 配 $21$、$14$ 配 $15$，共 $4$ 對。
+
+\textbf{想法}
+
+把配對畫成線，這就是最長共同子序列，只是「兩個元素相同」換成「兩筆讀數吻
+合」。 回頭檢查第~\ref{sec:ss-lcs-table}~小節的兩段理由，用到的只有「$a_i$ 和
+$b_j$ 能不能配」：
+
+\begin{itemize}
+\item 不能配時，至少一個沒用到：交叉的理由和「能不能配」怎麼定義無關。
+\item 能配時直接配：把 $a_i$ 原本的線改連到 $b_j$，需要的是 $a_i$ 和 $b_j$ 能
+配，這正是這個情況的前提。
+\end{itemize}
+
+所以轉移式一個字都不用改，只把 \texttt{a[i - 1] == b[j - 1]} 換成
+\texttt{abs(a[i - 1] - b[j - 1]) <= D}。
+
+要注意的是，吻合\textbf{沒有遞移性}：$D = 3$ 時，$2$ 和 $5$ 吻合、$5$ 和 $8$
+吻合，$2$ 和 $8$ 卻不吻合。 所以不能先把讀數分組（例如除以 $D + 1$ 取商），
+再當成「同一組就相同」去做一般的最長共同子序列。 每一對都要直接算差。
+
+最後是記憶體。 整張表 $5001 \times 5001$ 個 \texttt{int}，大約 $100$ MB，超
+過 $32$ MB，所以用兩列的滾動陣列，記憶體只剩幾十 KB。
+
+同樣的模型也出現在別的地方：兩支手環各自記錄的心跳、兩台收銀機各自的交易時
+間，取樣時間不同步、偶爾漏記，要對齊兩串紀錄時，都可以用「誤差在範圍內就算
+吻合」的最長共同子序列。
+
+\textbf{程式}
+
+\begin{example}[label=ex:ss-stations]{cpp}{(stations.cpp) 兩座測站的容許誤差比對}
+#include <algorithm>
+#include <cstdlib>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, m, d;
+    cin >> n >> m >> d;
+    vector<int> a(n), b(m);
+    for (int &x : a) {
+        cin >> x;
+    }
+    for (int &x : b) {
+        cin >> x;
+    }
+    // prev：表格的第 i - 1 列；cur：正在填的第 i 列
+    vector<int> prev(m + 1, 0), cur(m + 1, 0);
+    for (int i = 1; i <= n; i++) {
+        cur[0] = 0;
+        for (int j = 1; j <= m; j++) {
+            cur[j] = max(prev[j], cur[j - 1]);       // 有一筆沒用到
+            if (abs(a[i - 1] - b[j - 1]) <= d) {
+                cur[j] = max(cur[j], prev[j - 1] + 1);   // 配成一對
+            }
+        }
+        swap(prev, cur);
+    }
+    cout << prev[m] << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+5 6 2 \\
+12 15 9 20 14 \\
+10 17 13 21 8 15 \\
+}{
+4 \\
+}
+
+\begin{itemize}
+\item 迴圈結束時剛好又 \texttt{swap} 了一次，最後一列在 \texttt{prev} 裡，所以
+輸出 \texttt{prev[m]}。 印 \texttt{cur[m]} 會印到倒數第二列。
+\item 能配的時候，這裡仍然和上面、左邊比一次大小。 上一節說過能配時直接配不會
+吃虧，所以 \texttt{prev[j - 1] + 1} 一定不比另外兩個小，多比一次只是不用另外
+想，結果一樣。
+\item 讀數到 $10^9$，兩個相減在 $-10^9$ 到 $10^9$ 之間，\texttt{int} 不會溢
+位。 \texttt{abs} 對 \texttt{int} 要 \texttt{\#include <cstdlib>}。
+\end{itemize}
+
+\textbf{複雜度}
+
+$O(nm)$ 時間，$n = m = 5000$ 時 $2500$ 萬格，每格只做幾個比較；記憶體
+$O(n + m)$。 最大的測試資料在本書測試的環境下約 $0.1$ 秒，整支程式的記憶體
+大約 $4$ MB，離 $32$ MB 的限制很遠。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{只留一列，左上角被蓋掉}：把 \texttt{prev}、\texttt{cur} 合成一
+個陣列 \texttt{f}，能配時寫 \texttt{f[j - 1] + 1}。 範例會印出 \texttt{5}，正
+確是 $4$。 \texttt{f[j - 1]} 已經是這一列的值，裡面可能已經用過 $a_i$，再加一
+等於讓 $a_i$ 配了兩次。 要只留一列，就照上一節用 \texttt{diag} 存住左上角。
+\item \textbf{開整張表}：\texttt{vector<vector<int>> f(n + 1, vector<int>(m + 1))}
+在 $n = m = 5000$ 時大約 $100$ MB，超過記憶體限制。 動手前先用格子數乘上每格的
+位元組數估一次。
+\item \textbf{先分組再比相等}：讀數除以 $D + 1$ 取商，同一組才算吻合。 題目
+的第二組範例（$D = 3$，$a = 2, 9, 5, 6$，$b = 8, 4, 1, 3$）正確答案是 $3$，
+這樣做只得到 $2$：$9$ 和 $8$ 吻合，卻被分到不同組。
+\item \textbf{$\le$ 寫成 $<$}：範例會印出 \texttt{3}。 $D = 0$ 時更明顯，只
+有完全相等才吻合，寫成 $<$ 就一對都配不到。
+\end{itemize}
+
+\section{編輯距離}
+\label{sec:ss-edit}
+
+打字打錯了，要改幾個字才會對？ 對一個字串可以做三種\textbf{編輯}：插入一個字、
+刪掉一個字、把一個字換成另一個字。 把字串 $A$ 變成 $B$ 最少要幾次編輯，叫做
+$A$ 到 $B$ 的\textbf{編輯距離}（edit distance），也叫 Levenshtein 距離。 拼字
+檢查、比對兩份文件的差異、比對兩段 DNA，都會用到它。
+
+\subsection{三種操作，三個方向}
+\label{sec:ss-edit-table}
+
+狀態和最長共同子序列一樣是兩串的前綴：\texttt{f[i][j]} 是把 $A$ 的前 $i$ 個
+字改成 $B$ 的前 $j$ 個字，最少要幾次編輯。 看兩串的最後一個字，最佳的改法只有
+三種結局：
+
+\begin{itemize}
+\item $a_i$ 最後變成 $b_j$：一樣就不用改，不一樣就換一次。 前面是 $A$ 的前
+$i - 1$ 個改成 $B$ 的前 $j - 1$ 個，從左上角 \texttt{f[i - 1][j - 1]} 來。
+\item $a_i$ 被刪掉：花一次，前面是 $A$ 的前 $i - 1$ 個改成 $B$ 的前 $j$ 個，
+從上面 \texttt{f[i - 1][j]} 來。
+\item $b_j$ 是插入的：花一次，前面是 $A$ 的前 $i$ 個改成 $B$ 的前 $j - 1$ 個，
+從左邊 \texttt{f[i][j - 1]} 來。
+\end{itemize}
+
+三者取最小。 初始值也要想清楚：$A$ 的前 $i$ 個改成空字串，只能全部刪掉，
+\texttt{f[i][0] = i}；空字串改成 $B$ 的前 $j$ 個，只能全部插入，
+\texttt{f[0][j] = j}。 這兩行和最長共同子序列的「全部是 $0$」不同，是最常寫錯
+的地方。
+
+\begin{example}[label=ex:ss-edit]{cpp}{(edit.cpp) 編輯距離}
+#include <algorithm>
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+int main() {
+    string a, b;
+    cin >> a >> b;
+    int n = a.size(), m = b.size();
+    // f[i][j]：把 a 的前 i 個字改成 b 的前 j 個字，最少要幾次編輯
+    vector<vector<int>> f(n + 1, vector<int>(m + 1));
+    for (int i = 0; i <= n; i++) {
+        f[i][0] = i;                    // 全部刪掉
+    }
+    for (int j = 0; j <= m; j++) {
+        f[0][j] = j;                    // 全部插入
+    }
+    for (int i = 1; i <= n; i++) {
+        for (int j = 1; j <= m; j++) {
+            int same = (a[i - 1] == b[j - 1]) ? 0 : 1;
+            f[i][j] = min({f[i - 1][j - 1] + same,   // 不改或替換
+                           f[i - 1][j] + 1,          // 刪掉 a[i]
+                           f[i][j - 1] + 1});        // 插入 b[j]
+        }
+    }
+    cout << f[n][m] << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+CAFE CHAI \\
+}{
+3 \\
+}
+
+\begin{center}
+\begin{tikzpicture}[x=0.7cm, y=0.7cm,
+    g/.style={draw=black!55, minimum size=0.7cm, inner sep=0pt, font=\small\ttfamily},
+    pth/.style={g, draw=memStroke, thick, fill=memFill},
+    lbl/.style={font=\small\ttfamily}]
+\foreach \c [count=\j from 1] in {C,H,A,I} { \node[lbl] at (\j,1) {\c}; }
+\foreach \c [count=\i from 1] in {C,A,F,E} { \node[lbl] at (-1,-\i) {\c}; }
+\foreach \row [count=\r from 0] in {{0,1,2,3,4},{1,0,1,2,3},{2,1,1,1,2},{3,2,2,2,2},{4,3,3,3,3}} {
+  \foreach \v [count=\c from 0] in \row {
+    \node[g] at (\c,-\r) {\v};
+  }
+}
+\node[pth] at (0,0) {0}; \node[pth] at (1,-1) {0}; \node[pth] at (2,-1) {1};
+\node[pth] at (3,-2) {1}; \node[pth] at (4,-3) {2}; \node[pth] at (4,-4) {3};
+\node[font=\scriptsize, right] at (5.2,0) {$(0,0) \to (1,1)$：\texttt{C} 不用改};
+\node[font=\scriptsize, right] at (5.2,-1) {$(1,1) \to (1,2)$：插入 \texttt{H}};
+\node[font=\scriptsize, right] at (5.2,-2) {$(1,2) \to (2,3)$：\texttt{A} 不用改};
+\node[font=\scriptsize, right] at (5.2,-3) {$(2,3) \to (3,4)$：\texttt{F} 換成 \texttt{I}};
+\node[font=\scriptsize, right] at (5.2,-4) {$(3,4) \to (4,4)$：刪掉 \texttt{E}};
+\end{tikzpicture}
+\diagcaption{\texttt{CAFE}（列）改成 \texttt{CHAI}（行）的表，答案 $3$。 橘色是
+一條最佳的路徑：往右是插入，往下是刪除，往右下是不用改或替換。}
+\label{fig:ss-edit-table}
+\end{center}
+
+路徑上的每一步都對應一次操作，所以還原的方法和最長共同子序列一樣：從右下角往
+回走，每一步找一個「算得出這一格」的來源。 這張表裡最佳的改法不只一種：把
+\texttt{A}、\texttt{F}、\texttt{E} 依序換成 \texttt{H}、\texttt{A}、
+\texttt{I}，也是 $3$ 次，對應表裡一路往右下的對角線。
+
+編輯距離和最長共同子序列是近親。 如果不准替換，只能插入和刪除，那麼沒被刪掉的
+字和沒被插入的字要一一對上，它們就是一個共同子序列；保留得越多，要刪、要插的
+就越少。 所以這時的最少次數是 $n + m - 2 \times$ 最長共同子序列的長度（本章練
+習第~5~題）。
+
+\subsection{例題：在聊天紀錄裡找打錯的句子}
+\label{sec:ss-ex-typo}
+
+\textbf{題意}（\akiref{finding-a-mistyped-sentence-in-the-chat-log}{在聊天紀錄裡找打錯的句子}）
+
+\begin{itemize}
+\item 聊天紀錄是一個小寫字母字串 $T$，要找的句子是 $P$，都去掉了空白和標點。
+\item $T$ 的一段連續子字串 $S = t_l \cdots t_r$，代價是 $P$ 到 $S$ 的編輯距離。
+\item 求最小的代價 $c$。 代價都是 $c$ 的子字串裡，選最短的；一樣短就選開始位
+置 $l$ 最小的。 輸出 $c$、$l$、$r$（位置從 $1$ 開始）。
+\item $|T| \le 5000$，$|P| \le 1000$。
+\end{itemize}
+
+例如 $T = $ \texttt{wemeetinlibaryatfive}、$P = $ \texttt{library}。 第 $9$ 到
+第 $14$ 個字是 \texttt{libary}，從 \texttt{library} 刪掉一個 \texttt{r} 就得到，
+代價 $1$；$T$ 裡沒有一段和 \texttt{library} 完全相同，所以答案是
+\texttt{1 9 14}。 前面的 \texttt{wemeetin} 不在 $S$ 裡，不算代價。
+
+\textbf{想法}
+
+最直接的做法：枚舉所有 $(l, r)$，各算一次編輯距離。 子字串有大約
+$1.25 \times 10^7$ 個，每個再乘上 $|P| \times |S|$，完全不行。 稍微好一點：固定
+起點 $l$，對 $P$ 和 $t_l t_{l+1} \cdots t_n$ 做一次編輯距離，表格的最後一列就同
+時給出所有結束位置 $r$ 的代價。 這樣是 $|T|$ 次、每次 $|P| \times |T|$，總共
+$2.5 \times 10^{10}$，還是太慢。
+
+\textbf{觀察一：改初始值，起點就自由了。} 照編輯距離的狀態，讓
+\texttt{f[i][j]} 表示「$P$ 的前 $i$ 個字改成某個\textbf{結束在 $t_j$} 的子字
+串」的最少次數，子字串從哪裡開始都可以。 和上一小節只差在第 $0$ 列：$P$ 的前
+$0$ 個字（空字串）要變成一個結束在 $t_j$ 的子字串，選空的那一段就好，不用任何
+操作，所以 \texttt{f[0][j] = 0}，而不是 $j$。 $t_1 \cdots t_j$ 這些字不在
+$S$ 裡，本來就不該算錢。 其他的轉移完全不變：第 $0$ 行
+\texttt{f[i][0] = i} 也不變，$P$ 的字不能免費丟掉。 最後一列
+\texttt{f[|P|][j]} 是結束在 $t_j$ 的最小代價，對所有 $j$ 取最小，結束位置也自
+由了。 這樣只要做一次 $|P| \times |T| = 5 \times 10^6$ 格的表。
+
+\textbf{觀察二：每格多記一個起點。} 題目還要最短的子字串。 同樣結束在 $t_j$、
+代價一樣，起點越晚越短，所以每格除了代價，再記「同代價下最晚的起點」。 第 $0$
+列的空字串結束在 $t_j$，起點記成 $j + 1$。 三種轉移都只是把某一格的代價加上
+$0$ 或 $1$，起點原封不動帶過來。 所以把一格寫成
+$(\text{代價}, -\text{起點})$ 這一對，先比代價、再比 $-$起點，取最小的那一對。
+為什麼每格只記最好的一對就夠？ 從同一個來源格出發的所有改法，代價都加上同一個
+數，原本誰比較好，加完還是誰比較好；所以來源格只要交出它最好的那一對，不會漏
+掉更好的。 \texttt{pair} 的 \texttt{<} 剛好就是先比第一個、再比第二個（銜接
+書第~8~章）。
+
+\textbf{一個邊界：空字串。} 最後一列的某一格，可能是「把 $P$ 全刪光、對到空字
+串」，代價 $|P|$，起點 $j + 1$ 比結束位置還大，要跳過。 被它擋住的情況只有一
+種：最小代價剛好是 $|P|$。 這時任何一個字的子字串代價都不超過 $|P|$（換掉一
+個字、刪掉其他 $|P| - 1$ 個），所以答案就是 $|P|$，取最短、最左的 $t_1$。
+
+同樣的模型也出現在別的地方：在一長段 DNA 裡找最像某個片段的區域；在搜尋引擎裡
+輸入打錯的關鍵字，仍然在文章中標出最接近的那幾個字。
+
+\textbf{程式}
+
+\begin{example}[label=ex:ss-typo]{cpp}{(typo.cpp) 在聊天紀錄裡找打錯的句子}
+#include <algorithm>
+#include <iostream>
+#include <string>
+#include <utility>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    string t, p;
+    cin >> t >> p;
+    int n = t.size(), m = p.size();
+    // 一格存 {代價, -起點}。
+    // 第 i 列是 P 的前 i 個字，第 j 行是「結束在 t_j」。
+    // 第 0 列：空字串對到結束在 t_j 的空字串，起點 j + 1。
+    vector<pair<int, int>> prev(n + 1), cur(n + 1);
+    for (int j = 0; j <= n; j++) {
+        prev[j] = {0, -(j + 1)};
+    }
+    for (int i = 1; i <= m; i++) {
+        cur[0] = {i, -1};                    // P 的前 i 個字全刪
+        for (int j = 1; j <= n; j++) {
+            auto [c1, s1] = prev[j - 1];     // P 的第 i 個字變成 t_j
+            auto [c2, s2] = prev[j];         // 刪掉 P 的第 i 個字
+            auto [c3, s3] = cur[j - 1];      // t_j 是插入的
+            int diff = (p[i - 1] != t[j - 1]) ? 1 : 0;
+            cur[j] = min({make_pair(c1 + diff, s1),
+                          make_pair(c2 + 1, s2),
+                          make_pair(c3 + 1, s3)});
+        }
+        swap(prev, cur);
+    }
+    int bestC = m + 1, bestL = 0, bestR = 0;
+    for (int j = 1; j <= n; j++) {
+        int c = prev[j].first, l = -prev[j].second;
+        if (l > j) {
+            continue;                        // 空字串，不算
+        }
+        bool better = c < bestC ||
+            (c == bestC && (j - l < bestR - bestL ||
+                            (j - l == bestR - bestL && l < bestL)));
+        if (better) {
+            bestC = c;
+            bestL = l;
+            bestR = j;
+        }
+    }
+    if (bestC >= m) {                        // 沒有比 m 好的：取 t_1
+        bestC = m;
+        bestL = 1;
+        bestR = 1;
+    }
+    cout << bestC << ' ' << bestL << ' ' << bestR << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+wemeetinlibaryatfive \\
+library \\
+}{
+1 9 14 \\
+}
+
+\begin{itemize}
+\item 這裡的列是 $P$、行是 $T$，滾動的是 $P$ 的列，所以兩列各有 $|T| + 1$ 格。
+填完之後 \texttt{prev} 是最後一列，裡面是每個結束位置的答案。 一整張表是
+$1001 \times 5001$ 個 \texttt{pair}，大約 $40$ MB，這題的記憶體也放得下，但
+用兩列一樣好寫。
+\item \texttt{auto [c1, s1] = prev[j - 1];} 是結構化綁定（銜接書第~8~章），把
+\texttt{pair} 的兩個成員分別取出來。 沒讀過銜接書的話，把它看成
+\texttt{c1 = prev[j - 1].first; s1 = prev[j - 1].second;} 即可。
+\item \texttt{min} 收一串用大括號包起來的值，型別要完全相同，所以三個候選都用
+\texttt{make\_pair} 做成 \texttt{pair<int, int>}。
+\item 選答案時，長度用 $j - l$ 比較，少加的 $1$ 兩邊都少，不影響大小。
+\end{itemize}
+
+\textbf{複雜度}
+
+一張 $|P| \times |T| = 5 \times 10^6$ 格的表，每格比三個 \texttt{pair}，記憶體
+$O(|T|)$。 最大的測試資料在本書測試的環境下約 $0.1$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{照抄編輯距離的初始值}：第 $0$ 列寫成 \texttt{\{j, -1\}}，等於規
+定 $S$ 一定從 $t_1$ 開始，前面的字全都要算插入。 範例會印出 \texttt{7 1 1}：
+最便宜的對齊也要把 \texttt{wemeetin} 算進去，代價都超過 $7$，最後落到「沒有比
+$|P|$ 更好」的那一段。
+\item \textbf{同代價時保留最早結束的}：選答案時只比 \texttt{c < bestC}。 輸入
+\begin{code}{text}{只保留最早結束會錯的輸入}
+seeyauthenseyouandseyou
+seeyou
+\end{code}
+正確答案是 \texttt{1 11 15}（\texttt{seyou}，刪掉一個 \texttt{e}），這樣寫會
+印出 \texttt{1 1 6}：\texttt{seeyau} 結束得比較早，代價也是 $1$，但比較長。
+\item \textbf{沒處理空字串}：拿掉 \texttt{l > j} 的判斷和最後的
+\texttt{if}，輸入 $T = $ \texttt{xyz}、$P = $ \texttt{ab}（兩者沒有共同的字）
+時印出 \texttt{2 2 1}，開始位置比結束位置還大。 正確答案是 \texttt{2 1 1}。 只
+拿掉最後的 \texttt{if}，會印出 \texttt{3 0 0}。
+\end{itemize}
+
+\section{回文子序列}
+\label{sec:ss-palin}
+
+正著讀和倒著讀一樣的字串叫\textbf{回文}（palindrome），例如
+\texttt{LEVEL}、\texttt{NOON}。 一個字串裡最長的回文子序列有多長？
+\texttt{BANANAS} 的答案是 $5$（\texttt{ANANA}）。
+
+一個字串和它自己倒過來的那一串，是兩串。 回文子序列倒過來還是它自己，所以它
+同時是 $s$ 和「$s$ 倒過來」的子序列，也就是兩者的共同子序列。 反過來也成立：
+兩者的最長共同子序列的長度，剛好等於最長回文子序列的長度（理由見下面的框）。
+所以直接套用最長共同子序列，再用兩列的滾動陣列：
+
+\begin{example}[label=ex:ss-palin]{cpp}{(palin.cpp) 最長回文子序列與最少插入次數}
+#include <algorithm>
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+int main() {
+    string s;
+    cin >> s;
+    string r(s.rbegin(), s.rend());     // s 倒過來
+    int n = s.size();
+    vector<int> prev(n + 1, 0), cur(n + 1, 0);
+    for (int i = 1; i <= n; i++) {
+        for (int j = 1; j <= n; j++) {
+            if (s[i - 1] == r[j - 1]) {
+                cur[j] = prev[j - 1] + 1;
+            } else {
+                cur[j] = max(prev[j], cur[j - 1]);
+            }
+        }
+        swap(prev, cur);
+    }
+    int longest = prev[n];
+    cout << longest << ' ' << n - longest << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+BANANAS \\
+}{
+5 2 \\
+}
+
+倒過來的字串是用反向迭代器 \texttt{rbegin()}、\texttt{rend()} 建出來的（銜接
+書第~9~章）。
+
+第二個數字是「最少插入幾個字，才能讓整個字串變成回文」。 留下最長回文子序列，
+其他每個字都在對稱的位置插入一個一樣的字和它配對：\texttt{BANANAS} 留下
+\texttt{ANANA}，在前面補 \texttt{S}、在後面補 \texttt{B}，變成
+\texttt{SBANANABS}，插入 $2$ 個。 不可能更少：插入 $k$ 個字變成回文之後，原本
+的字裡，對稱位置上也是原本的字的那些，本身就組成 $s$ 的一個回文子序列；對稱位
+置是插入的字的，最多 $k$ 個。 所以 $k \ge n - $ 最長回文子序列。 改成「最少刪
+幾個字」，答案也是同一個數。
+
+\begin{whybox}[共同子序列夠長，就有一樣長的回文子序列]
+設 $s$ 和倒過來的 $r$ 有一個長度 $L$ 的共同子序列。 $r$ 的第 $j$ 個字是 $s$
+的第 $n + 1 - j$ 個字，所以這個共同子序列可以寫成 $L$ 對位置
+$(x_1, y_1), \ldots, (x_L, y_L)$：$s[x_k] = s[y_k]$，$x$ 由小到大，$y$ 由大到
+小（$y$ 是換回 $s$ 的位置）。
+
+$x$ 越來越大、$y$ 越來越小，所以前面若干對有 $x_k < y_k$，之後都是
+$x_k \ge y_k$。 設前面有 $t$ 對。
+\begin{itemize}
+\item 前 $t$ 對：$x_1 < \cdots < x_t < y_t < \cdots < y_1$，依序讀
+$s[x_1], \ldots, s[x_t], s[y_t], \ldots, s[y_1]$，是長度 $2t$ 的回文子序列。
+\item 後 $L - t$ 對：$y_L < \cdots < y_{t+1} \le x_{t+1} < \cdots < x_L$，同樣
+讀出一個回文子序列，長度 $2(L - t)$，$y_{t+1} = x_{t+1}$ 時中間共用一個字，
+長度 $2(L - t) - 1$。
+\end{itemize}
+兩個裡面至少有一個不短於 $L$：$2t \ge L$ 的話第一個就是；否則 $L - t > L / 2$，
+$2(L - t) - 1 \ge L$。
+\end{whybox}
+
+這個框也說明了一件事：共同子序列本身不一定是回文。 \texttt{ACBAC} 倒過來是
+\texttt{CABCA}，最長共同子序列長度 $3$，\texttt{ABC} 就是其中一個，但它不是回
+文。 要印出回文子序列，可以用框裡的方法從配對拼出來，或改用第~3~章的區間動態
+規劃：直接以「$s$ 的第 $l$ 到第 $r$ 個字」為狀態，比較兩端的字。 那種寫法在回
+文問題上更直接，加權、限制條件也比較好加。
+
+\section{什麼時候用子序列 DP}
+\label{sec:ss-when}
+
+\begin{itemize}
+\item 題目說「照原本的順序」「可以跳過」「不必相鄰」，答案是一些位置挑出來的
+結果，就是子序列。 一定要相鄰的是子字串，回到第 1 本第~5~章的前綴和、雙指標。
+\item 只有一串，挑出來的東西前後要滿足一種關係（變大、變小、不超過某個差距）：
+用「以第 $i$ 個結尾」的狀態。 關係是單純的大小比較、$n$ 到 $2 \times 10^5$
+時，想辦法變成最長遞增子序列，用 $O(n \log n)$；關係比較複雜、$n$ 在幾千以內，
+$O(n^2)$ 就好。
+\item 兩串要互相對應，配對不能交叉：用「前 $i$ 個和前 $j$ 個」的表格。 先算
+$nm$ 夠不夠快，再算 $nm$ 乘上每格的位元組數放不放得下，放不下就滾動。
+\item 「最少改幾次才相同」：編輯距離，先確認三種操作各花多少、哪些不准用，初始
+值跟著改。
+\item 回文：和自己倒過來的那串做共同子序列，或用第~3~章的區間動態規劃。
+\end{itemize}
+
+看起來像、其實不是的情況：兩串都很長（各 $2 \times 10^5$）又都有重複時，一般
+的最長共同子序列做不到，要找題目的特殊結構，例如第~\ref{sec:ss-lcs-lis}~小節
+「其中一串沒有重複」。 子序列要求「總和最大」而不是「最長」時，最長遞增子序列
+的 \texttt{tail} 就不能用了（\texttt{tail} 靠的是「長度相同時只要記最小的結
+尾」），要回到 $O(n^2)$，或用之後才會學到的資料結構。
+
+\begin{apcsnote}
+APCS 的實作題由程式自動評分，只比對輸出。 要印出子序列的題目，答案不只一個時
+印哪一個，要照題目的規定；寫回溯之前先在題目裡找到這句話，「一樣大時往哪邊走」
+照它決定。 只要長度的題目，就不要多寫回溯，也不用留整張表。
+\end{apcsnote}
+
+\section{本章常見錯誤}
+\label{sec:ss-pitfalls}
+
+\begin{center}
+\begin{tabular}{p{0.22\linewidth}p{0.46\linewidth}p{0.2\linewidth}}
+\toprule
+錯誤 & 例子 & 見 \\
+\midrule
+嚴格與不嚴格搞混 & 嚴格遞增卻用 \texttt{upper\_bound}；反方向加負號後換了函式 &
+第~\ref{sec:ss-ex-sing}~節 \\
+把 \texttt{tail} 當成答案 & 直接印 \texttt{tail}；用 \texttt{tail.size()} 當成
+以它結尾的長度 & 第~\ref{sec:ss-lis-path}、\ref{sec:ss-ex-sing}~節 \\
+初始值照抄 & 編輯距離的第 $0$ 列、第 $0$ 行寫成 $0$；找子字串時第 $0$ 列沒改
+成 $0$ & 第~\ref{sec:ss-edit-table}、\ref{sec:ss-ex-typo}~節 \\
+滾動陣列讀到新值 & 只留一列卻用 \texttt{f[j - 1]} 當左上角；最後印了
+\texttt{cur} & 第~\ref{sec:ss-rolling}、\ref{sec:ss-ex-stations}~節 \\
+沒估記憶體 & $5000 \times 5000$ 的 \texttt{int} 表要 $100$ MB &
+第~\ref{sec:ss-ex-stations}~節 \\
+同分的處理 & 回溯時一樣大往哪邊走；同代價時要最短還是最早 &
+第~\ref{sec:ss-lcs-path}、\ref{sec:ss-ex-typo}~節 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+另外，這一章每一個動態規劃都可以用 $2^n$ 的暴力解檢查：列出所有子序列，逐一
+判斷。 $n \le 12$ 的隨機資料上比對幾千組，上面這些錯誤大多會現形。
+
+\section{本章練習}
+\label{sec:ss-exercises}
+
+\begin{drills}[label=drills:ss]
+\item 數列 $5, 1, 6, 2, 7, 3, 4$。
+\begin{enumerate}
+\item 照範例~\ref{ex:ss-lis-path} 的方式，寫出每一輪的 $k$、\texttt{tail}、
+\texttt{tailAt}、\texttt{from[i]}，以及程式印出的子序列。
+\item 寫出以每個位置結尾的最長長度，和以每個位置開頭的最長長度。 包含 $6$ 的
+遞增子序列最長多長？
+\end{enumerate}
+
+\item 把範例~\ref{ex:ss-lcs-path} 的 \texttt{>=} 改成 \texttt{>}（一樣大時往左
+走），輸入 \texttt{STREAM MASTER} 會印出什麼？ 照圖~\ref{fig:ss-lcs-table} 寫
+出經過的格子。
+
+\item 有人把最長共同子序列寫成只留一列：
+\begin{code}{cpp}{練習 3}
+vector<int> f(m + 1, 0);
+for (int i = 1; i <= n; i++) {
+    for (int j = 1; j <= m; j++) {
+        if (a[i - 1] == b[j - 1]) {
+            f[j] = f[j - 1] + 1;
+        } else {
+            f[j] = max(f[j], f[j - 1]);
+        }
+    }
+}
+\end{code}
+輸入 $A = $ \texttt{A}、$B = $ \texttt{AA} 時 \texttt{f[m]} 是多少？ 正確答案
+是多少？ 錯在哪裡？
+
+\item 估計記憶體，判斷要不要用滾動陣列。
+\begin{enumerate}
+\item 兩串各 $3000$ 個，求最長共同子序列的長度，表格用 \texttt{int}，記憶體限
+制 $64$ MB。
+\item 同上，但要印出一個最長共同子序列。
+\item 編輯距離，兩串各 $2 \times 10^4$ 個，表格用 \texttt{int}，記憶體限制
+$256$ MB。 時間來得及嗎？
+\end{enumerate}
+
+\item 只准插入和刪除、不准替換時，把 $A$ 改成 $B$ 最少要幾次？
+\begin{enumerate}
+\item 說明答案是 $n + m - 2L$，$L$ 是最長共同子序列的長度。
+\item 用這個式子算 \texttt{STREAM} 改成 \texttt{MASTER}，和准替換時的編輯距
+離比較。
+\end{enumerate}
+
+\item 範例~\ref{ex:ss-sing} 改成「難度可以相等」（不下降），兩次
+\texttt{lower\_bound} 各要怎麼改？ 用 $2, 5, 5, 3, 5, 6$ 檢查指定第 $2$ 首時
+的答案。
+
+\item 字串 \texttt{ABCBDA}。
+\begin{enumerate}
+\item 最長回文子序列是多少？ 寫出一個。
+\item 最少插入幾個字可以變成回文？ 寫出插入後的字串。
+\end{enumerate}
+\end{drills}
+
+\section{實作練習}
+\label{sec:ss-practice}
+
+下面是 Aki-Judge 上和本章相關的題目，依小節分組。 難度分四階：暖身是直接套用
+本章的寫法；基本要自己改出狀態或轉移；實戰的題敘比較長，要先把題目轉換成本章
+的形狀；挑戰會和其他章的技巧合在一起，或需要更進一步的觀察。
+
+\begin{center}
+\begin{tabular}{llc}
+\toprule
+小節 & 題目 & 難度 \\
+\midrule
+最長遞增子序列 & \akiref{longest-improving-streak-ending-each-day}{每天的進步紀錄長度} & 暖身 \\
+ & \akiref{daily-best-on-the-sticker-card}{集點卡每日最長紀錄} & 暖身 \\
+ & \akiref{relabeling-the-lockers}{重編置物櫃號碼} & 基本 \\
+ & \akiref{rising-record-without-long-gaps}{不能斷太久的成長紀錄} & 基本 \\
+ & \akiref{card-binders}{分冊收藏} & 實戰 \\
+ & \akiref{freshmen-joining-the-club-lineage}{新生接上社團傳承線} & 挑戰 \\
+\midrule
+最長共同子序列 & \akiref{prefix-matching-of-dance-logs}{舞步紀錄的前綴比對} & 暖身 \\
+ & \akiref{recital-check-letter-score}{背誦檢查：字母計分} & 暖身 \\
+ & \akiref{the-two-most-similar-submissions}{最相似的兩份作業} & 基本 \\
+ & \akiref{where-two-judges-agree}{兩位評審的共識名單} & 實戰 \\
+ & \akiref{songs-that-might-be-kept}{哪些歌曲可能被保留} & 實戰 \\
+ & \akiref{subtitle-sync-with-a-drift-limit}{字幕同步的漂移上限} & 實戰 \\
+ & \akiref{cheapest-shared-stop-sequence}{兩人共搭的最省站序} & 實戰 \\
+ & \akiref{the-looping-melody}{循環播放的旋律} & 挑戰 \\
+\midrule
+編輯距離與回文 & \akiref{flags-take-down-or-recolor}{拆旗換色排回文} & 基本 \\
+ & \akiref{aligning-a-scanned-handout-with-missing-lines}{掃描講義缺行的對齊成本} & 挑戰 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+本章的三題例題也在 Aki-Judge 上，讀完各節之後可以先自己寫一次再對照。 這一章
+的題單還會再增加。
+
+\section{讀完你應該會}
+\label{sec:ss-checklist}
+
+\begin{itemize}
+\item 用 $O(n \log n)$ 的寫法印出一個最長遞增子序列，並算出以每個位置結尾、以
+每個位置開頭的最長長度。
+\item 寫出最長共同子序列和編輯距離的狀態、三個方向的轉移和初始值，手動填一張
+小表，從右下角還原出一組答案。
+\item 估計表格的記憶體，放不下時改成兩列的滾動陣列；只留一列時，用一個變數保
+住左上角。
+\item 遇到「相等」換成別的條件、起點或終點可以自由選的變形，說出轉移式和初始值
+各要改哪裡。
+\item 用「和倒過來的自己求共同子序列」算最長回文子序列和最少插入次數，並知道
+共同子序列不一定是回文。
+\end{itemize}
+
+\textbf{延伸閱讀}（書末會整理完整的參考資料）
+
+\begin{itemize}
+\item Thomas H. Cormen 等，\textit{Introduction to Algorithms}，第 4 版，
+14.4 節：最長共同子序列的完整證明，以及用另一張表記錄方向的還原方法。
+\item Steven S. Skiena，\textit{The Algorithm Design Manual}，第 3 版，10.2
+節：編輯距離，以及改初始值、改成本就能變出的幾種變形（找子字串、最長共同子序
+列）。
+\item Steven Halim 等，\textit{Competitive Programming 4}，Book 1 的 3.5.2 節
+（最長遞增子序列的 $O(n \log k)$ 寫法與還原）、Book 2 的 6.3 節（字串的對齊與
+最長共同子序列）。
+\item Antti Laaksonen，\textit{Competitive Programmer's Handbook}，第 7 章：最長
+遞增子序列和編輯距離各一頁，適合快速複習。
+\end{itemize}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item
+\begin{enumerate}
+\item 位置從 $0$ 開始：
+\begin{center}
+\begin{tabular}{cccllc}
+\toprule
+$i$ & \texttt{a[i]} & $k$ & \texttt{tail} & \texttt{tailAt} & \texttt{from[i]} \\
+\midrule
+0 & 5 & 0 & 5 & 0 & $-1$ \\
+1 & 1 & 0 & 1 & 1 & $-1$ \\
+2 & 6 & 1 & 1 6 & 1 2 & 1 \\
+3 & 2 & 1 & 1 2 & 1 3 & 1 \\
+4 & 7 & 2 & 1 2 7 & 1 3 4 & 3 \\
+5 & 3 & 2 & 1 2 3 & 1 3 5 & 3 \\
+6 & 4 & 3 & 1 2 3 4 & 1 3 5 6 & 5 \\
+\bottomrule
+\end{tabular}
+\end{center}
+從 \texttt{tailAt} 的最後一格 $6$ 往回走：$6 \to 5 \to 3 \to 1$，印出
+\texttt{1 2 3 4}，長度 $4$。
+\item 以它結尾（$k + 1$）：$1, 1, 2, 2, 3, 3, 4$。 以它開頭：$5$ 後面可以接
+$6, 7$，是 $3$；依序是 $3, 4, 2, 3, 1, 2, 1$。 包含 $6$ 的最長是
+$2 + 2 - 1 = 3$，例如 $5, 6, 7$ 或 $1, 6, 7$。
+\end{enumerate}
+
+\item 印出 \texttt{3} 和 \texttt{STE}。 從 $(6, 6)$ 開始，上面和左邊都是 $3$，
+改成往左：$(6, 5)$ 的 \texttt{M} 和 \texttt{E} 不同，上面 $3$、左邊 $2$，往上
+到 $(5, 5)$、$(4, 5)$；$(4, 5)$ 是 \texttt{E} 和 \texttt{E}，記下 \texttt{E}，
+到 $(3, 4)$；\texttt{R} 和 \texttt{T} 不同，上面 $2$、左邊 $1$，往上到
+$(2, 4)$，記下 \texttt{T}；到 $(1, 3)$ 記下 \texttt{S}。 倒過來是
+\texttt{STE}。
+
+\item \texttt{f[m]} 是 $2$，正確答案是 $1$。 $i = 1$、$j = 1$ 時兩個
+\texttt{A} 配對，\texttt{f[1]} 變成 $1$；$j = 2$ 時又相等，程式用
+\texttt{f[1] + 1}，可是 \texttt{f[1]} 已經是這一列的值，裡面用過 $A$ 唯一的
+\texttt{A}，等於同一個 \texttt{A} 配了兩次。 左上角要用上一列的
+\texttt{f[1]}，也就是 $0$，見第~\ref{sec:ss-rolling}~節的 \texttt{diag}。
+
+\item
+\begin{enumerate}
+\item $3001 \times 3001 \times 4$ 位元組大約 $36$ MB，放得下，不一定要滾動；
+用兩列也只要幾十 KB。
+\item 要還原就要整張表，$36$ MB 放得下。 想再省，可以只存方向，一格一個
+\texttt{char}，大約 $9$ MB；但長度的部分仍然可以用兩列。
+\item 整張表 $4 \times 10^8$ 格，要 $1.6$ GB，一定要滾動。 時間是
+$4 \times 10^8$ 格，每格幾個比較，照銜接書 10.1 節的估計，時間限制一秒時很可能
+來不及，要先確認題目給的時間限制。
+\end{enumerate}
+
+\item
+\begin{enumerate}
+\item 只准插入、刪除時，$A$ 裡沒被刪掉的字，依序就是 $B$ 裡沒被插入的字，所以
+留下來的是一個共同子序列，設長度 $\ell$。 要刪 $n - \ell$ 個、插入 $m - \ell$
+個，共 $n + m - 2\ell$ 次；$\ell$ 越大越少，取 $\ell = L$ 最少。
+\item $6 + 6 - 2 \times 3 = 6$ 次，例如刪掉 \texttt{R}、\texttt{A}、
+\texttt{M}，在前面插入 \texttt{M}、\texttt{A}，在最後插入 \texttt{R}。 准替換
+時，用範例~\ref{ex:ss-edit} 跑出來是 $5$：最後一步不刪 \texttt{M} 再插
+\texttt{R}，改成把 \texttt{M} 換成 \texttt{R}，省一次。 一次替換抵得過一次刪除
+加一次插入，所以准替換時不會更多。
+\end{enumerate}
+
+\item 兩次都改成 \texttt{upper\_bound}。 正方向是不下降，用
+\texttt{upper\_bound}；反方向加負號之後，「後面不比較簡單」變成「負號之後不下
+降」，也是 \texttt{upper\_bound}。 $2, 5, 5, 3, 5, 6$ 指定第 $2$ 首：前面
+$2, 5$，後面 $5, 5, 6$（第 $3$、$5$、$6$ 首），共 $5$ 首。
+
+\item
+\begin{enumerate}
+\item 長度 $5$，\texttt{ABCBA}（第 $1$、$2$、$3$、$4$、$6$ 個字）。
+\item $6 - 5 = 1$ 個。 \texttt{D} 不在回文子序列裡，在它的對稱位置（第 $1$ 個
+字 \texttt{A} 後面）補一個 \texttt{D}，得到 \texttt{ADBCBDA}。
+\end{enumerate}
+\end{enumerate}

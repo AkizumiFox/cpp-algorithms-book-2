@@ -1,0 +1,1397 @@
+\chapter{DAG 與拓樸排序}
+\label{ch:dag}
+
+% 本章的圖共用的樣式（工作、強調的工作、箭頭）
+\tikzset{
+    tk/.style={rounded corners=2pt, draw=black!60, thick, minimum height=0.7cm,
+               inner sep=3pt, font=\small},
+    tkhl/.style={tk, draw=memStroke, fill=memFill},
+    tv/.style={circle, draw=black!60, thick, minimum size=0.7cm, inner sep=0pt, font=\small},
+    tvhl/.style={tv, draw=memStroke, fill=memFill},
+    tvbad/.style={tv, draw=optStroke, fill=optFill},
+    ta/.style={-{Stealth[length=2.2mm]}, thick, draw=black!60, shorten >=1pt},
+    tahl/.style={-{Stealth[length=2.2mm]}, very thick, draw=memStroke, shorten >=1pt},
+}
+
+週末在家吃火鍋，要做的事有七件，畫在下圖。 箭頭表示先後：買完菜才能洗菜切
+菜、調沾醬、煮湯底；湯底要等電磁爐借回來才能煮；最後四件事都好了才開火上
+桌。 一次只做一件事，請排出一個做事的順序。 往下讀之前，先在紙上寫一個，並
+留意自己是怎麼挑「下一件」的。
+
+\begin{center}
+\begin{tikzpicture}[x=2.6cm, y=1.05cm]
+\node[tk] (c) at (0,2) {3 買菜};
+\node[tk] (f) at (0,0.5) {6 借電磁爐};
+\node[tk] (d) at (0,-0.6) {4 擺碗筷};
+\node[tk] (b) at (1.15,2.6) {2 洗菜切菜};
+\node[tk] (g) at (1.15,1.6) {7 調沾醬};
+\node[tk] (e) at (1.15,0.5) {5 煮湯底};
+\node[tk] (a) at (2.3,1) {1 開火上桌};
+\draw[ta] (c) -- (b);
+\draw[ta] (c) -- (g);
+\draw[ta] (c) -- (e);
+\draw[ta] (f) -- (e);
+\draw[ta] (b) -- (a);
+\draw[ta] (g) -- (a);
+\draw[ta] (e) -- (a);
+\draw[ta] (d) -- (a);
+\end{tikzpicture}
+\diagcaption{吃火鍋前的七件事。 前面的數字是編號，之後的程式都用編號。}
+\label{fig:hotpot}
+\end{center}
+
+大部分人的做法是：先找「不用等任何事」的（買菜、借電磁爐、擺碗筷），挑一件
+做掉；做完之後，看看有沒有哪件事因此可以開始了，再從可以開始的裡面挑一件。
+例如 買菜、擺碗筷、借電磁爐、洗菜切菜、調沾醬、煮湯底、開火上桌。 順序不只一
+種，但不管怎麼排，每個箭頭都要從前面指到後面。
+
+這種「一堆事情，加上誰要在誰之前」的資料，畫成有向圖，箭頭不能繞成圈，否則
+就沒有人能先開始。 《C++ 演算法解題 1：APCS 實作題核心》（以下簡稱第 1 本）第~9~章把這種圖叫做有向無環圖，簡稱 DAG。 那一章說過，
+每個動態規劃背後都有一張 DAG，計算時每個點要排在所有指向它的點後面；當時刻
+意沒有替這種順序取名字，這一章正式介紹它：它叫\textbf{拓樸順序}。 上面那個
+「挑不用等的、做完再看誰可以開始」的做法，第 1 本第~6~章「層層彙整的報告」已經用
+過一次，只是那裡的圖是一棵樹。
+
+這一章先把拓樸順序講清楚，接著是兩種排出它的方法：延續第 1 本第~6~章的 Kahn 演算
+法，以及用第 1 本第~11~章的深度優先搜尋。 兩種方法都能順便發現圖上有沒有環。 然後
+回到第 1 本第~9~章，在輸入給的 DAG 上做動態規劃：最長路、路徑數，以及專案排程裡的
+關鍵路徑。 最後一節求編號字典序最小的拓樸順序，要把佇列換成優先佇列。
+
+用到的語法：\texttt{queue} 和 \texttt{priority\_queue} 在銜接書第~8~章，自
+訂成「小的在上」的寫法也在那裡；鄰接串列的存法在第 1 本第~11~章。 沒讀過銜接書
+的讀者，只要會用 \texttt{vector<vector<int>>}、\texttt{queue}，並知道
+\texttt{priority\_queue} 可以設定成每次拿出最小的，就能讀這一章。
+
+\section{先後關係與拓樸順序}
+\label{sec:topo-order}
+
+把每件事畫成一個點，「$a$ 要在 $b$ 之前」畫成一條有向邊 $a \to b$。 有向圖
+上，一個點有幾條邊指進來，叫它的\textbf{入度}（in-degree）；有幾條邊指出去，
+叫\textbf{出度}（out-degree）。 圖~\ref{fig:hotpot} 裡，開火上桌（點 $1$）的
+入度是 $4$，買菜（點 $3$）的出度是 $3$。 入度是 $0$ 的點不用等任何事，出度是
+$0$ 的點沒有任何事在等它。
+
+把所有點排成一列，如果每一條邊 $u \to v$ 都是 $u$ 排在 $v$ 前面，這一列就是
+一個\textbf{拓樸順序}（topological order）。 求出一個拓樸順序的過程叫
+\textbf{拓樸排序}（topological sort）。 名字裡有「排序」，但它和第 1 本第~2~章的排
+序不一樣：這裡沒有大小可以比，只有「誰在誰前面」的規定，沒有規定的兩點誰先
+都可以。
+
+用圖~\ref{fig:hotpot} 的編號：
+
+\begin{itemize}
+\item $3, 4, 6, 2, 7, 5, 1$ 是拓樸順序。 逐條檢查八條邊，箭尾都排在箭頭前面。
+\item $6, 4, 3, 5, 7, 2, 1$ 也是。 同一張圖通常有很多個拓樸順序。
+\item $3, 2, 5, 6, 7, 4, 1$ 不是：邊 $6 \to 5$ 的 $6$ 排在 $5$ 後面，湯底還沒有
+電磁爐就開始煮了。
+\end{itemize}
+
+\subsection{有環就排不出來}
+
+如果圖上有環，例如 $a \to b \to c \to a$，環上三個點誰都不能排第一：排第一的
+那個點，一定有環上的另一個點指向它，而那個點排在它後面。 所以有環的圖沒有
+拓樸順序。
+
+反過來，沒有環的圖一定排得出來。 理由是：DAG 上一定找得到入度 $0$ 的點。 隨
+便挑一個點，如果有邊指向它，就沿著這條邊倒退到前一個點；再有邊指進來就再倒
+退。 點只有 $n$ 個，倒退 $n$ 次還沒停，就一定重複經過某個點，也就是找到了一
+個環，和沒有環矛盾。 所以一定會停在一個入度 $0$ 的點。 把它排在第一個、從圖
+上拿掉，剩下的圖仍然沒有環，再找下一個入度 $0$ 的點，一直做到全部排完。
+
+這段說明本身就是一個演算法，下一節把它寫成程式。 它也說明了一件之後常用的
+事：一張有向圖排得出拓樸順序，剛好就是它沒有環的時候。 所以「有沒有環」和
+「排不排得出來」是同一個問題，兩種拓樸排序的方法都會順便回答它。
+
+\subsection{回到第 1 本第 9 章}
+
+第 1 本第~9~章說，動態規劃的計算順序要讓「每個點都排在所有指向它的點後面」。 現在
+可以直接說：計算順序就是狀態圖的一個拓樸順序。 那一章和第 1 本第~10~章的例子，拓樸
+順序都很好找：郵票的箭頭都從小金額指向大金額，由小到大就是一個拓樸順序；格
+子圖的箭頭往右、往下，一列一列由左到右也是。 第 1 本第~13~章把樹的 BFS 順序倒過來
+算子樹大小，也是在用一個拓樸順序。
+
+這一章的圖直接寫在輸入裡，點的編號和先後沒有關係，看不出哪個順序是對的，要
+用演算法算出來。
+
+\section{Kahn 演算法}
+\label{sec:kahn}
+
+最直接的做法是照上一節的說明：每一輪把所有點掃一遍，找一個還沒排、入度已經
+是 $0$ 的點，排進去，再把它指向的點入度減一。 每一輪掃 $n$ 個點，共 $n$ 輪，
+是 $O(n^2)$。 $n = 2 \times 10^5$ 時是 $4 \times 10^{10}$，太慢。
+
+慢的地方在「每一輪都從頭找」。 第 1 本第~6~章的「層層彙整的報告」已經示範過怎麼不
+用找：用 \texttt{waiting[i]} 記員工 $i$ 還有幾個部屬沒交，減到 $0$ 就放進佇
+列。 那裡的 \texttt{waiting} 就是這一章的入度。 一般的 DAG 和那題只差一點：
+員工只要通知一位主管，一般的點可能有好幾條邊指出去，所以要用鄰接串列記下每
+個點指向誰。 整理成步驟：
+
+\begin{enumerate}
+\item 讀邊時，把 $v$ 加進 $u$ 的串列，並把 $v$ 的入度加一。
+\item 把所有入度 $0$ 的點放進佇列。
+\item 佇列不空時，從前面拿出一個點 $u$，接在答案後面。 $u$ 的串列裡每個點
+$v$ 入度減一；減到 $0$，表示 $v$ 的最後一個前置剛完成，把 $v$ 放進佇列。
+\end{enumerate}
+
+這個做法叫 \textbf{Kahn 演算法}（Kahn's algorithm），以提出者的名字命名。 程
+式裡多做一件事：結束時檢查排進答案的點夠不夠 $n$ 個，下一小節說明原因。
+
+\begin{example}[label=ex:kahn]{cpp}{(kahn.cpp) Kahn 演算法}
+#include <iostream>
+#include <queue>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n, m;
+    cin >> n >> m;
+    vector<vector<int>> adj(n + 1);
+    vector<int> indeg(n + 1, 0);           // 入度：還有幾個前置沒完成
+    for (int i = 0; i < m; i++) {
+        int a, b;
+        cin >> a >> b;                     // a 要在 b 之前
+        adj[a].push_back(b);
+        indeg[b]++;
+    }
+    queue<int> q;
+    for (int v = 1; v <= n; v++) {
+        if (indeg[v] == 0) {
+            q.push(v);
+        }
+    }
+    vector<int> order;
+    while (!q.empty()) {
+        int u = q.front();
+        q.pop();
+        order.push_back(u);
+        for (int v : adj[u]) {
+            indeg[v]--;
+            if (indeg[v] == 0) {           // 最後一個前置剛完成
+                q.push(v);
+            }
+        }
+    }
+    if ((int)order.size() < n) {           // 有點永遠等不到：圖上有環
+        cout << "cycle:";
+        for (int v = 1; v <= n; v++) {
+            if (indeg[v] > 0) {
+                cout << ' ' << v;
+            }
+        }
+        cout << '\n';
+        return 0;
+    }
+    for (int i = 0; i < n; i++) {
+        cout << order[i] << (i + 1 < n ? ' ' : '\n');
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+7 8 \\
+3 2 \\
+3 7 \\
+3 5 \\
+6 5 \\
+2 1 \\
+5 1 \\
+7 1 \\
+4 1 \\
+}{
+3 4 6 2 7 5 1 \\
+}
+
+輸入是圖~\ref{fig:hotpot} 的八條邊。 一開始入度 $0$ 的是 $3$、$4$、$6$，之後
+每一步：
+
+\begin{center}
+\begin{tabular}{clll}
+\toprule
+拿出 & 入度減一 & 新放入 & 之後的佇列（前 $\to$ 後） \\
+\midrule
+ & & & 3 4 6 \\
+3 & 2：$1 \to 0$，7：$1 \to 0$，5：$2 \to 1$ & 2、7 & 4 6 2 7 \\
+4 & 1：$4 \to 3$ & & 6 2 7 \\
+6 & 5：$1 \to 0$ & 5 & 2 7 5 \\
+2 & 1：$3 \to 2$ & & 7 5 \\
+7 & 1：$2 \to 1$ & & 5 \\
+5 & 1：$1 \to 0$ & 1 & 1 \\
+1 & & & （空）\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+\item 一個點只在入度\textbf{減到} $0$ 的那一刻放入佇列，所以每個點最多放入一
+次。 點 $1$ 的入度被減了四次，前三次都不放。
+\item 為什麼拿出來的順序一定合法：$v$ 放入佇列時入度是 $0$，表示每一條指向它
+的邊 $u \to v$ 都已經被「減過」了，也就是 $u$ 已經拿出來、排在答案裡。 所以
+$v$ 排在每個 $u$ 後面。
+\item 複雜度：每個點放入、拿出各一次；每個點拿出時看一遍自己的串列，所有串列
+加起來是 $m$ 條邊。 總共 $O(n + m)$。
+\end{itemize}
+
+\subsection{找環}
+\label{sec:kahn-cycle}
+
+如果圖上有環，環上的點入度永遠不會減到 $0$：環上每個點都在等環上的前一個點，
+誰都不會先被拿出來。 所以 Kahn 演算法跑完時，答案裡的點不到 $n$ 個，就表示有
+環。 這個檢查只要一行，題目沒有保證無環時一定要做。
+
+例如資料表寫錯，多了一條「煮湯底要在買菜之前」（$5 \to 3$），買菜和煮湯底就
+互相等待。 輸入多加一行 \texttt{5 3}（第一行改成 \texttt{7 9}），程式印出
+\texttt{cycle: 1 2 3 5 7}。 拿出來的只有 $4$ 和 $6$。 剩下的五個點裡，真正在環上的只有 $3$ 和 $5$；$2$、$7$
+要等買菜，$1$ 要等前面幾件事，它們是被環擋住的。 所以 Kahn 剩下的點是「在環
+上，或是在某個環的下游」，不一定每個都在環上。
+
+要找出一個真正的環，可以從任一個剩下的點出發往回走：剩下的點入度還不是 $0$，
+表示還有一個沒拿出來的點指向它，而那個點也是剩下的點。 一直往回走，走過的點
+不會超過 $n$ 個，一定會重複，重複的那一段就是一個環。 往回走需要反向圖（第 1 本第
+~11~章）。 第~\ref{sec:dfs-topo}~節的 DFS 可以直接把環印出來，通常比較方便。
+
+\subsection{佇列可以換成別的容器}
+
+Kahn 演算法正確的理由，只用到「放進去的點入度都是 $0$」，和容器裡誰先拿出來
+無關。 所以佇列換成堆疊、換成優先佇列，排出來的都是拓樸順序，只是順序不同。
+在圖~\ref{fig:hotpot} 上：
+
+\begin{itemize}
+\item 佇列（先進先出）：$3, 4, 6, 2, 7, 5, 1$，接近「一層一層」往下。
+\item 堆疊（後進先出）：一開始依序放入 $3$、$4$、$6$，先拿出最後放的 $6$，
+排出來是 $6, 4, 3, 5, 7, 2, 1$（本章練習第~2~題）。
+\item 優先佇列，每次拿編號最小的：$3, 2, 4, 6, 5, 7, 1$。 這是所有拓樸順序裡字
+典序最小的一個，第~\ref{sec:lex-topo}~節會說明。
+\end{itemize}
+
+題目只要「任一個拓樸順序」時，用哪一種都行。 題目把順序規定死的時候，就要照
+題目選容器，下面的例題就是這樣。
+
+\subsection{例題：成果展布置的工作清單}
+\label{sec:ex-checklist}
+
+\textbf{題意}（\akiref{setup-checklist-for-the-exhibition}{成果展布置的工作清單}）
+
+\begin{itemize}
+\item 有 $n$ 項布置工作和 $m$ 條規定，規定 $a\ b$ 表示工作 $a$ 要在工作 $b$
+之前完成。 保證沒有矛盾。
+\item 助教用一個待辦佇列決定順序：一開始把沒有前置工作的項目依編號由小到大放
+進佇列；每次從最前面拿一項做完；做完後，這一次\textbf{新變成}可以開始的工作
+依編號由小到大接到佇列尾端。
+\item 輸出完成工作的順序。 $n, m \le 2 \times 10^5$。
+\end{itemize}
+
+例如 $n = 4$，規定是 $1 \to 4$、$2 \to 3$。 一開始佇列是 $1, 2$；做完 $1$，
+$4$ 可以開始，佇列變成 $2, 4$；做完 $2$，$3$ 可以開始，佇列變成 $4, 3$。 答
+案是 \texttt{1 2 4 3}。 $3$ 的編號比 $4$ 小，但 $4$ 比較早進佇列，所以先做。
+
+\textbf{想法}
+
+題目描述的規則就是 Kahn 演算法，只多了兩個要求：一開始的點依編號放入（迴圈
+從 $1$ 掃到 $n$ 本來就是這樣），以及同一次新解鎖的點要先排序再放入。 第二個
+要求的做法是：拿出 $u$ 之後，先把入度減到 $0$ 的點收集在一個暫存的
+\texttt{vector} 裡，排序後再依序放進佇列。
+
+最直接的寫法是照字面模擬：每做完一項，就把所有工作掃一遍，找出新變成可以開
+始的。 這是本節開頭的 $O(n^2)$ 做法。 測試資料裡有 $2 \times 10^5$ 項工作排成
+一長串的情況，在本書測試的環境下跑了一分鐘還沒結束。
+
+排序會不會太慢？ 每次排序的是「這一次新解鎖的點」，每個點一生只會被解鎖一次，
+所以所有批次加起來最多 $n$ 個點，排序的總時間不超過 $O(n \log n)$。
+
+同樣的模型也出現在別的地方：課程有先修規定，每學期只修已經可以修的課；工廠
+的生產線上，每道工序要等前面的工序完成。 規定「已經在排隊的不插隊」時，就是
+佇列；規定「每次挑編號最小的」時，就是第~\ref{sec:lex-topo}~節的優先佇列。
+
+\textbf{程式}
+
+\begin{example}[label=ex:checklist]{cpp}{(checklist.cpp) 成果展布置的工作清單}
+#include <algorithm>
+#include <iostream>
+#include <queue>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, m;
+    cin >> n >> m;
+    vector<vector<int>> adj(n + 1);
+    vector<int> indeg(n + 1, 0);
+    for (int i = 0; i < m; i++) {
+        int a, b;
+        cin >> a >> b;
+        adj[a].push_back(b);
+        indeg[b]++;
+    }
+    queue<int> q;
+    for (int v = 1; v <= n; v++) {               // 編號由小到大放入
+        if (indeg[v] == 0) {
+            q.push(v);
+        }
+    }
+    vector<int> order, fresh;
+    while (!q.empty()) {
+        int u = q.front();
+        q.pop();
+        order.push_back(u);
+        fresh.clear();                           // 這一次新解鎖的工作
+        for (int v : adj[u]) {
+            indeg[v]--;
+            if (indeg[v] == 0) {
+                fresh.push_back(v);
+            }
+        }
+        sort(fresh.begin(), fresh.end());
+        for (int v : fresh) {
+            q.push(v);
+        }
+    }
+    for (int i = 0; i < n; i++) {
+        cout << order[i] << (i + 1 < n ? ' ' : '\n');
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+6 6 \\
+3 6 \\
+1 4 \\
+3 2 \\
+4 5 \\
+2 5 \\
+1 6 \\
+}{
+1 3 4 2 6 5 \\
+}
+
+做完 $3$ 時，$3$ 的串列依輸入是 $6, 2$，兩個都減到 $0$。 \texttt{fresh} 排
+序成 $2, 6$ 再放入，佇列從 $4$ 變成 $4, 2, 6$。
+
+\begin{itemize}
+\item 題目保證沒有矛盾，所以不檢查 \texttt{order} 的長度。 沒有這個保證的題
+目，要加上前面 \texttt{kahn.cpp} 的檢查。
+\end{itemize}
+
+\textbf{複雜度}
+
+Kahn 本身 $O(n + m)$，加上各批排序共 $O(n \log n)$。 最大的測試資料在本書測
+試的環境下約 $0.15$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{用優先佇列}：把「依編號由小到大」讀成「每次拿可以做的裡面編號最
+小的」。 例子裡的輸入 \texttt{4 2}、\texttt{1 4}、\texttt{2 3}（三行）會印出
+\texttt{1 2 3 4}，正確答案是 \texttt{1 2 4 3}。 兩種規則在範例~1 碰巧也不同：
+優先佇列印出 \texttt{1 3 2 4 5 6}。
+\item \textbf{新解鎖的沒有排序}：拿掉 \texttt{sort} 那一行，範例的輸入會照
+串列的順序放入 $6$、$2$，印出 \texttt{1 3 4 6 2 5}。 範例~2 的每一批都只有一
+個點，這個錯誤在範例~2 看不出來。
+\item \textbf{入度一減就放入}：少了 \texttt{if (indeg[v] == 0)}，每減一次就
+放一次。 點 $6$ 有兩個前置，會被放進佇列兩次，範例的輸入印出
+\texttt{1 3 4 6 2 6}（只印前 $n$ 個），$6$ 出現兩次，$5$ 沒有出現。
+\end{itemize}
+
+\section{用 DFS 做拓樸排序}
+\label{sec:dfs-topo}
+
+另一種方法用第 1 本第~11~章的深度優先搜尋。 關鍵是 DFS 裡一個點「結束」的時機：
+\texttt{dfs(u)} 回傳時，從 $u$ 走得到的每一個點都已經結束了。 換句話說，在有
+向無環圖上，每條邊 $u \to v$ 的 $v$ 都比 $u$ 早結束。 把點照結束的先後記下來，
+最後\textbf{倒過來}，每條邊的 $u$ 就都排在 $v$ 前面，正好是拓樸順序。
+
+為什麼 $v$ 一定比 $u$ 早結束？ DFS 在 $u$ 的串列看到 $v$ 的時候，$v$ 有三種
+可能：
+
+\begin{itemize}
+\item $v$ 還沒去過：DFS 會從 $u$ 走進 $v$，等 $v$ 結束才回到 $u$，所以 $v$ 先
+結束。
+\item $v$ 已經結束：不用說，$v$ 先結束。
+\item $v$ 去過了但還沒結束：$v$ 還在呼叫堆疊上，表示 DFS 是從 $v$ 一路走到 $u$
+的，再加上 $u \to v$ 這條邊就繞回 $v$，是一個環。 DAG 上不會發生。
+\end{itemize}
+
+所以每個點要記三種狀態：還沒去過、進行中（還在堆疊上）、已經結束。 習慣上用
+顏色稱呼，白、灰、黑，程式裡用 $0$、$1$、$2$。 第三種情況「看到灰色的點」就
+是找到環，而且環就在堆疊上：從那個灰色的點到堆疊頂端，再走回它。
+
+在圖~\ref{fig:hotpot} 上，從編號小的點開始做 DFS，串列的順序照輸入：
+
+\begin{center}
+\begin{tabular}{cll}
+\toprule
+從哪裡開始 & 經過 & 依序結束 \\
+\midrule
+1 & 1 沒有出去的邊 & 1 \\
+2 & $2 \to 1$，1 已結束 & 2 \\
+3 & $3 \to 2$ 已結束；$3 \to 7$，$7 \to 1$ 已結束；$3 \to 5$，$5 \to 1$ 已結束
+& 7、5、3 \\
+4 & $4 \to 1$ 已結束 & 4 \\
+5 & 已經是黑色，跳過 & \\
+6 & $6 \to 5$ 已結束 & 6 \\
+7 & 已經是黑色，跳過 & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+結束的先後是 $1, 2, 7, 5, 3, 4, 6$，倒過來是 $6, 4, 3, 5, 7, 2, 1$，和 Kahn
+排出來的不一樣，但也是拓樸順序。 注意 DFS 不需要從入度 $0$ 的點開始：從點 $1$
+開始時，$1$ 就是最先結束的那個，倒過來剛好在最後。
+
+\subsection{寫成迴圈}
+
+第 1 本第~11~章量過，遞迴的 DFS 在一條長鏈上大約十幾萬層就會用光堆疊。 這一章的題
+目 $n$ 常常到 $2 \times 10^5$，所以直接用第 1 本第~11~章的「改法二」：自己用一個
+\texttt{vector} 當堆疊，每一格記住點和「下一個要看第幾個鄰居」。 鄰居看完、
+彈出的那一刻，就是這個點結束的時刻。 堆疊上的點剛好是所有灰色的點，找到環時
+要印的那一段就在堆疊裡。
+
+\begin{example}[label=ex:dfs-topo]{cpp}{(dfs\_topo.cpp) 用 DFS 排拓樸順序或找出一個環}
+#include <algorithm>
+#include <iostream>
+#include <utility>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n, m;
+    cin >> n >> m;
+    vector<vector<int>> adj(n + 1);
+    for (int i = 0; i < m; i++) {
+        int a, b;
+        cin >> a >> b;
+        adj[a].push_back(b);
+    }
+    // 0：還沒去過；1：還在堆疊上（沒結束）；2：已經結束
+    vector<int> color(n + 1, 0);
+    vector<int> finished;                       // 結束的先後
+    for (int s = 1; s <= n; s++) {
+        if (color[s] != 0) {
+            continue;
+        }
+        vector<pair<int, int>> st = {{s, 0}};   // （點, 下一個要看的鄰居位置）
+        color[s] = 1;
+        while (!st.empty()) {
+            int u = st.back().first;
+            int i = st.back().second;
+            if (i == (int)adj[u].size()) {      // 鄰居都看完：u 結束
+                color[u] = 2;
+                finished.push_back(u);
+                st.pop_back();
+                continue;
+            }
+            st.back().second++;
+            int v = adj[u][i];
+            if (color[v] == 0) {
+                color[v] = 1;
+                st.push_back({v, 0});
+            } else if (color[v] == 1) {         // 走回還沒結束的點：有環
+                int k = st.size() - 1;
+                while (st[k].first != v) {
+                    k--;
+                }
+                cout << "cycle:";
+                for (int j = k; j < (int)st.size(); j++) {
+                    cout << ' ' << st[j].first;
+                }
+                cout << ' ' << v << '\n';
+                return 0;
+            }
+        }
+    }
+    reverse(finished.begin(), finished.end());
+    for (int i = 0; i < n; i++) {
+        cout << finished[i] << (i + 1 < n ? ' ' : '\n');
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+7 8 \\
+3 2 \\
+3 7 \\
+3 5 \\
+6 5 \\
+2 1 \\
+5 1 \\
+7 1 \\
+4 1 \\
+}{
+6 4 3 5 7 2 1 \\
+}
+
+同樣多加一條 \texttt{5 3}，程式印出 \texttt{cycle: 3 5 3}：從 $3$ 走到 $5$，
+$5$ 的串列裡先看到 $1$（已結束），再看到 $3$，$3$ 是灰色。 堆疊上從 $3$ 到頂
+端是 $3, 5$，接回 $3$ 就是環。 和 Kahn 不同，這裡印的每一個點都在環上。
+
+\begin{itemize}
+\item 外層 \texttt{for} 從每個還沒去過的點出發，和第 1 本第~11~章數連通元件一樣。 有
+些點從別的點走不到（例如入度 $0$ 的點），不這樣做就會漏掉。
+\item 每個點變灰、變黑各一次，每條邊看一次，總共 $O(n + m)$。
+\end{itemize}
+
+\subsection{常見錯誤：只用兩種狀態}
+
+很多人第一次寫找環，只用第 1 本第~11~章的 \texttt{seen}：走到已經看過的點就說有環。
+在有向圖上這是錯的；無向圖找環的方法又不一樣，第~7~章再談。 四條邊 $1 \to 2$、$1 \to 3$、$2 \to 4$、$3 \to 4$
+沒有環，但從 $1$ 走 $1 \to 2 \to 4$，退回後再走 $1 \to 3$，$3$ 的鄰居 $4$ 已
+經看過，就被誤判成有環。 $4$ 這時已經結束，是黑色；只有走到灰色的點才是環。
+兩條路在 $4$ 會合，在 DAG 上很常見，例如圖~\ref{fig:hotpot} 的點 $1$ 有四條
+路可以走到。
+
+\subsection{Kahn 還是 DFS}
+
+\begin{center}
+\begin{tabular}{p{0.2\linewidth}p{0.34\linewidth}p{0.34\linewidth}}
+\toprule
+ & Kahn & DFS \\
+\midrule
+需要的資料 & 入度、鄰接串列 & 鄰接串列、三種顏色 \\
+有環時 & 排出的點不到 $n$ 個；剩下的點在環上或環的下游 & 走到灰色的點；堆疊上就是一個環 \\
+順序 & 容器決定，可以換成優先佇列控制 & 由 DFS 的走法決定，很難控制 \\
+長鏈 & 本來就是迴圈，不怕 & 遞迴會太深，要改成自己的堆疊 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+只要排出順序、判斷有沒有環時，兩種都可以，本書的例題多半用 Kahn：它是迴圈，
+不用擔心堆疊，順序也比較好控制。 需要印出一個具體的環時，DFS 比較方便。
+
+\begin{apcsnote}
+實作題的圖常常到 $2 \times 10^5$ 個點，遞迴的 DFS 有用光堆疊的風險（第 1 本第~11~
+章）。 只需要拓樸順序或判斷有沒有環時，直接寫 Kahn。 題目沒有說「保證沒有
+矛盾」時，記得檢查排出來的點夠不夠 $n$ 個。
+\end{apcsnote}
+
+\section{在 DAG 上做動態規劃}
+\label{sec:dag-dp}
+
+第 1 本第~9~章把「最少、最多、有幾種、做不做得到」對應到狀態圖上的「最短路、最長
+路、路徑數、走不走得到」，但那時的圖只畫在紙上，計算順序一眼就看得出來。 這一
+節的圖寫在輸入裡，順序用 Kahn 算出來，其他和第 1 本第~9~章一樣：照拓樸順序一個點一
+個點處理，處理到一個點的時候，所有指向它的點都已經處理完了。
+
+轉移有兩種寫法。 \textbf{往回拉}：處理 $v$ 時，看每一條指向 $v$ 的邊
+$u \to v$，用 $u$ 的答案算 $v$，需要反向圖。 \textbf{往前推}：處理 $u$ 時，
+$u$ 的答案已經確定，沿著每一條 $u \to v$ 去更新 $v$。 推的寫法直接用鄰接串
+列，不用另外建反向圖，本節都用推的。 第 1 本第~9~章的跳格子例題也比較過這兩種寫法。
+
+以「從 $s$ 出發」的題目來說，還有一件第 1 本第~9~章不常碰到的事：從 $s$ 走不到的點。
+它們在拓樸順序裡照樣會被處理，答案卻必須是「不存在」。 如果把它們的答案設成
+$0$，求最大值時就會被當成「總和 $0$ 的一條路」，算錯。 下面的例題會看到實際的
+錯誤輸出。
+
+\subsection{例題：夜市路線的最高滿意度與方案數}
+\label{sec:ex-nightmarket}
+
+\textbf{題意}（\akiref{best-night-market-route-and-how-many-ways}{夜市路線的最高滿意度與方案數}）
+
+\begin{itemize}
+\item 夜市有 $n$ 個攤位和 $m$ 條單向的巷子，巷子不會繞成圈。 攤位 $i$ 的滿意
+度是 $a_i$，可能是負數。
+\item 從攤位 $s$ 出發，每一步沿一條巷子走到下一個攤位，經過的每個攤位（含起
+點和終點）都要買，得到它的滿意度。 只能在沒有往外巷子的攤位結束；還有往外的
+巷子就一定要繼續走。
+\item 求所有路線中最大的總滿意度，以及達到最大值的路線有幾條（除以
+$10^9 + 7$ 的餘數）。
+\item $n \le 2 \times 10^5$，$m \le 4 \times 10^5$，$|a_i| \le 10^9$。
+\end{itemize}
+
+例如下圖，從攤位 $1$ 出發，可以停的是 $5$ 和 $6$。 五條路線裡，
+$1 \to 2 \to 4 \to 5$ 和 $1 \to 3 \to 4 \to 5$ 都是 $2 + 3 - 1 + 4 = 8$，最
+大，答案是 \texttt{8 2}。
+
+\begin{center}
+\begin{tikzpicture}[x=1.6cm, y=1.1cm]
+\node[tvhl] (1) at (0,0) {1};
+\node[tv] (2) at (1,0.8) {2};
+\node[tv] (3) at (1,-0.8) {3};
+\node[tv] (4) at (2,0) {4};
+\node[tv] (5) at (3,0.8) {5};
+\node[tv] (6) at (3,-0.8) {6};
+\node[idxlbl, below=1pt] at (1.south) {$a = 2$};
+\node[idxlbl, above=1pt] at (2.north) {$a = 3$};
+\node[idxlbl, below=1pt] at (3.south) {$a = 3$};
+\node[idxlbl, below=1pt] at (4.south) {$a = -1$};
+\node[idxlbl, above=1pt] at (5.north) {$a = 4$};
+\node[idxlbl, below=1pt] at (6.south) {$a = 2$};
+\draw[tahl] (1) -- (2);
+\draw[tahl] (1) -- (3);
+\draw[tahl] (2) -- (4);
+\draw[tahl] (3) -- (4);
+\draw[tahl] (4) -- (5);
+\draw[ta] (4) -- (6);
+\draw[ta] (3) -- (6);
+\end{tikzpicture}
+\diagcaption{範例 1 的夜市。 橘色的箭頭是兩條最好的路線用到的巷子。}
+\label{fig:nightmarket}
+\end{center}
+
+\textbf{想法}
+
+最直接的做法是從 $s$ 開始 DFS，把每一條路線都走一遍，邊走邊加滿意度。 路線
+的條數可能非常多：把攤位排成一層兩個、每一層的兩個都連到下一層的兩個，$k$
+層就有 $2^k$ 條路線。 $n = 2 \times 10^5$ 時這是天文數字，一條一條走一定來不
+及。 不過這個暴力解在 $n \le 15$ 的小範圍很好寫，可以拿來對拍。
+
+照第 1 本第~9~章的四件事來設計：
+
+\begin{itemize}
+\item \textbf{狀態}：\texttt{best[v]} 是「從 $s$ 走到 $v$ 的所有走法裡，經過的
+攤位滿意度總和的最大值」，\texttt{ways[v]} 是達到 \texttt{best[v]} 的走法數。
+另外用 \texttt{reach[v]} 記 $v$ 從 $s$ 走不走得到。
+\item \textbf{轉移}：處理 $u$ 時，對每條 $u \to v$ 算候選值
+$\texttt{best[u]} + a_v$。 $v$ 第一次被走到，或候選值比 \texttt{best[v]}
+大，就換掉 \texttt{best[v]}，\texttt{ways[v]} 改成 \texttt{ways[u]}；和
+\texttt{best[v]} 一樣大，就把 \texttt{ways[u]} 加進 \texttt{ways[v]}。
+\item \textbf{初始值}：$\texttt{reach[s]} = \text{true}$，
+$\texttt{best[s]} = a_s$，$\texttt{ways[s]} = 1$；其他點都還走不到。
+\item \textbf{計算順序}：Kahn 排出的拓樸順序。 走不到的點跳過。
+\end{itemize}
+
+最後在「走得到、出度 $0$」的攤位裡找最大的 \texttt{best}，把同樣大的那幾個攤
+位的 \texttt{ways} 加起來。
+
+\texttt{ways} 的轉移為什麼對：達到 \texttt{best[v]} 的每一條走法，最後一步都
+是某一條 $u \to v$，而且前面那一段一定是走到 $u$ 的最好走法之一（前面更差，
+加上 $a_v$ 也會更差）。 依最後一步從哪個 $u$ 來分類，每一類有
+\texttt{ways[u]} 條，不重複也不遺漏。 這和第 1 本第~9~章數走法的想法相同，只是多了
+「只數最好的」這個條件。
+
+用範例跑一次。 拓樸順序是 $1, 2, 3, 4, 5, 6$：
+
+\begin{center}
+\begin{tabular}{cl}
+\toprule
+處理 & 往前推的結果（\texttt{best}，\texttt{ways}） \\
+\midrule
+1 & 2：第一次走到，$(5, 1)$；3：第一次走到，$(5, 1)$ \\
+2 & 4：第一次走到，$5 - 1 = 4$，$(4, 1)$ \\
+3 & 4：候選 $4$ 一樣大，$(4, 2)$；6：第一次走到，$5 + 2 = 7$，$(7, 1)$ \\
+4 & 5：第一次走到，$4 + 4 = 8$，$(8, 2)$；6：候選 $4 + 2 = 6 < 7$，不變 \\
+5、6 & 沒有出去的巷子 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+可以停的 $5$、$6$ 分別是 $(8, 2)$ 和 $(7, 1)$，答案 \texttt{8 2}。
+
+同樣的模型也出現在別的地方：工作流程上每個步驟有收益或成本，找最划算的流程，
+並知道有幾種同樣好的做法；遊戲的劇情分支圖上，找分數最高的結局路線。
+
+\textbf{程式}
+
+\begin{example}[label=ex:nightmarket]{cpp}{(nightmarket.cpp) 夜市路線的最高滿意度與方案數}
+#include <iostream>
+#include <vector>
+using namespace std;
+
+const long long MOD = 1000000007;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, m, s;
+    cin >> n >> m >> s;
+    vector<long long> a(n + 1);
+    for (int i = 1; i <= n; i++) {
+        cin >> a[i];
+    }
+    vector<vector<int>> adj(n + 1);
+    vector<int> indeg(n + 1, 0);
+    for (int i = 0; i < m; i++) {
+        int u, v;
+        cin >> u >> v;
+        adj[u].push_back(v);
+        indeg[v]++;
+    }
+
+    // 第一步：Kahn 排出拓樸順序（vector 當佇列，order 本身就是結果）
+    vector<int> order;
+    for (int v = 1; v <= n; v++) {
+        if (indeg[v] == 0) {
+            order.push_back(v);
+        }
+    }
+    for (int k = 0; k < (int)order.size(); k++) {
+        int u = order[k];
+        for (int v : adj[u]) {
+            indeg[v]--;
+            if (indeg[v] == 0) {
+                order.push_back(v);
+            }
+        }
+    }
+
+    // 第二步：照拓樸順序往後推
+    vector<bool> reach(n + 1, false);   // 從 s 走得到嗎
+    vector<long long> best(n + 1, 0);   // 從 s 走到 v 的最大總和
+    vector<long long> ways(n + 1, 0);   // 達到 best[v] 的路線數（取餘數）
+    reach[s] = true;
+    best[s] = a[s];
+    ways[s] = 1;
+    for (int u : order) {
+        if (!reach[u]) {
+            continue;
+        }
+        for (int v : adj[u]) {
+            long long cand = best[u] + a[v];
+            if (!reach[v] || cand > best[v]) {      // 第一次走到，或更好
+                reach[v] = true;
+                best[v] = cand;
+                ways[v] = ways[u];
+            } else if (cand == best[v]) {           // 一樣好：路線數相加
+                ways[v] = (ways[v] + ways[u]) % MOD;
+            }
+        }
+    }
+
+    // 第三步：只看走得到、而且沒有往外巷子的攤位
+    bool found = false;
+    long long ans = 0, cnt = 0;
+    for (int v = 1; v <= n; v++) {
+        if (!reach[v] || !adj[v].empty()) {
+            continue;
+        }
+        if (!found || best[v] > ans) {
+            found = true;
+            ans = best[v];
+            cnt = ways[v];
+        } else if (best[v] == ans) {
+            cnt = (cnt + ways[v]) % MOD;
+        }
+    }
+    cout << ans << ' ' << cnt << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+6 7 1 \\
+2 3 3 -1 4 2 \\
+1 2 \\
+1 3 \\
+2 4 \\
+3 4 \\
+4 5 \\
+4 6 \\
+3 6 \\
+}{
+8 2 \\
+}
+
+\begin{itemize}
+\item 這裡的 Kahn 用 \texttt{order} 本身當佇列：\texttt{k} 是佇列的前端，
+\texttt{push\_back} 是放到尾端。 拿出來的順序就是 \texttt{order} 裡的順序，
+不用另外存。 第 1 本第~6~章的 \texttt{queue} 寫法也可以。
+\item 比大小用的是 \texttt{best}，它沒有取餘數；取餘數的只有 \texttt{ways}。
+路線數取了餘數之後就不能拿來比大小，這題剛好只比 \texttt{best}。
+\item \texttt{best} 最大約 $2 \times 10^5 \times 10^9 = 2 \times 10^{14}$，
+最小約 $-2 \times 10^{14}$，要用 \texttt{long long}。 \texttt{ways[v] + ways[u]}
+兩個都小於 $10^9 + 7$，相加不會超過 \texttt{long long}。
+\end{itemize}
+
+\textbf{複雜度}
+
+Kahn 和 DP 各看每條邊一次，$O(n + m)$。 最大的測試資料在本書測試的環境下約
+$0.2$ 秒，大部分花在讀入 $4 \times 10^5$ 條邊。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{沒有記走不走得到}：拿掉 \texttt{reach}，把每個點的 \texttt{best}
+當成一開始是 $0$。 範例~2 有五個攤位，滿意度 $5, -3, -4, 6, -1$，巷子
+$1 \to 3$、$2 \to 3$、$3 \to 5$、$2 \to 5$、$4 \to 5$。 從攤位 $2$ 出發，路線只有 $2 \to 3 \to 5$（$-8$）和 $2 \to 5$（$-4$），答案是
+\texttt{-4 1}。 這樣寫會印出 \texttt{0 0}：攤位 $3$ 的 \texttt{best} 本來就
+是 $0$，比從 $2$ 走來的 $-7$ 大，不會被更新，\texttt{ways} 一直是 $0$；攤位
+$5$ 也一樣。 只要所有路線的總和都是負的，就會出事。
+\item \textbf{在任何攤位都能停}：最後一步沒有檢查出度，在所有走得到的攤位裡
+找最大。 範例~2 會印出 \texttt{-3 1}，也就是只買起點攤位就走。
+\item \textbf{總和用 \texttt{int}}：輸入一條 $2 \times 10^5$ 個攤位的長鏈、每
+個攤位都是 $10^9$，正確答案是 \texttt{200000000000000 1}。 把 \texttt{a}、
+\texttt{best}、\texttt{cand}、\texttt{ans} 改成 \texttt{int}，在本書測試的環
+境下印出 \texttt{552894464 1}。
+\item \textbf{照編號順序算}：用 \texttt{for (int u = 1; u <= n; u++)} 代替拓
+樸順序。 範例~1 的編號剛好是拓樸順序，所以會過。 輸入 \texttt{3 2 3}、
+\texttt{1 1 1}、\texttt{3 2}、\texttt{2 1}（四行）只有一條路線
+$3 \to 2 \to 1$，答案是 \texttt{3 1}，這樣寫會印出 \texttt{0 0}：處理攤位
+$2$ 時它還沒被走到，等到處理 $3$ 才把 $2$ 標成走得到，但 $2$ 已經處理過了，
+攤位 $1$ 永遠走不到。
+\end{itemize}
+
+\subsection{關鍵路徑}
+\label{sec:critical-path}
+
+回到章首的火鍋。 現在每件事都有一個時間（分鐘），而且家裡有好幾個人，沒有先
+後關係的事可以同時做：
+
+\begin{center}
+\begin{tabular}{lccccccc}
+\toprule
+編號 & 1 & 2 & 3 & 4 & 5 & 6 & 7 \\
+工作 & 開火上桌 & 洗菜切菜 & 買菜 & 擺碗筷 & 煮湯底 & 借電磁爐 & 調沾醬 \\
+時間 & 5 & 30 & 40 & 5 & 50 & 20 & 10 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+最快多久能開飯？ 一件事最早什麼時候開始，就是它所有前置工作裡最晚完成的時
+刻；沒有前置的從 $0$ 開始。 這正是第 1 本第~6~章「層層彙整的報告」的式子，只是那裡
+每人只有一位主管。 照拓樸順序往前推：買菜 $0$ 到 $40$，借電磁爐 $0$ 到 $20$，
+煮湯底要等兩者，從 $40$ 開始、$90$ 完成，開火上桌從 $90$ 開始、$95$ 完成。
+所以最快 $95$ 分鐘。
+
+再問：哪些事一拖延，開飯就會延後？ 這要倒過來算每件事\textbf{最晚}什麼時候
+要完成。 開火上桌最晚 $95$ 完成，所以最晚 $90$ 開始；它的四個前置都必須在
+$90$ 以前完成。 煮湯底最晚 $90$ 完成、$40$ 開始，所以買菜和借電磁爐最晚 $40$
+要完成。 一般地說，一件事最晚的完成時刻，是它所有後續工作最晚開始時刻的最小
+值；沒有後續工作的，就是全部完成的時刻 $95$。 這要照拓樸順序\textbf{倒過來}
+處理，因為要先知道後面的事。
+
+最晚和最早的完成時刻之差，叫\textbf{寬裕時間}（slack）：這件事最多可以拖延
+這麼久，不影響開飯。 寬裕時間是 $0$ 的事一點都不能拖，它們連成的一條路叫\textbf{關
+鍵路徑}（critical path）。 這裡是 買菜 $\to$ 煮湯底 $\to$ 開火上桌，$40 + 50
++ 5 = 95$，剛好是全部的時間。 想提早開飯，只有縮短關鍵路徑上的事才有用；洗菜
+切菜再快也沒有幫助。
+
+\begin{example}[label=ex:critical]{cpp}{(critical.cpp) 最早、最晚開始時刻與寬裕時間}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n, m;
+    cin >> n >> m;
+    vector<long long> t(n + 1);
+    for (int i = 1; i <= n; i++) {
+        cin >> t[i];
+    }
+    vector<vector<int>> adj(n + 1);
+    vector<int> indeg(n + 1, 0);
+    for (int i = 0; i < m; i++) {
+        int a, b;
+        cin >> a >> b;
+        adj[a].push_back(b);
+        indeg[b]++;
+    }
+    vector<int> order;                       // Kahn，寫法同夜市的例題
+    for (int v = 1; v <= n; v++) {
+        if (indeg[v] == 0) {
+            order.push_back(v);
+        }
+    }
+    for (int k = 0; k < (int)order.size(); k++) {
+        for (int v : adj[order[k]]) {
+            if (--indeg[v] == 0) {
+                order.push_back(v);
+            }
+        }
+    }
+
+    // 往前推：最早開始 es，最早完成 es + t
+    vector<long long> es(n + 1, 0);
+    long long total = 0;
+    for (int u : order) {
+        total = max(total, es[u] + t[u]);
+        for (int v : adj[u]) {
+            es[v] = max(es[v], es[u] + t[u]);
+        }
+    }
+    // 倒著拉：最晚完成 lf，沒有後續工作的就是 total
+    vector<long long> lf(n + 1, total);
+    for (int k = n - 1; k >= 0; k--) {
+        int u = order[k];
+        for (int v : adj[u]) {
+            lf[u] = min(lf[u], lf[v] - t[v]);   // v 最晚開始之前要做完
+        }
+    }
+
+    cout << total << '\n';
+    for (int v = 1; v <= n; v++) {
+        long long slack = lf[v] - (es[v] + t[v]);
+        cout << v << ' ' << es[v] << ' ' << lf[v] - t[v] << ' ' << slack << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+7 8 \\
+5 30 40 5 50 20 10 \\
+3 2 \\
+3 7 \\
+3 5 \\
+6 5 \\
+2 1 \\
+5 1 \\
+7 1 \\
+4 1 \\
+}{
+95 \\
+1 90 90 0 \\
+2 40 60 20 \\
+3 0 0 0 \\
+4 0 85 85 \\
+5 40 40 0 \\
+6 0 20 20 \\
+7 40 80 40 \\
+}
+
+輸出的每一行是「編號、最早開始、最晚開始、寬裕時間」。 寬裕時間是 $0$ 的是
+$1$、$3$、$5$，就是上面找到的關鍵路徑。
+
+\begin{itemize}
+\item 往前推和倒著拉用同一個拓樸順序，只是方向相反。 倒著處理時，$u$ 的所有後
+續工作都在 $u$ 後面，已經算好了，所以這裡用「拉」的寫法，直接用鄰接串列，不
+需要反向圖。
+\item 程式假設沒有環。 有環時 \texttt{order} 不到 $n$ 個，\texttt{order[k]}
+會讀到陣列外面；題目沒有保證時，要先檢查。
+\item 最早完成時刻就是「從某個起點走到這個點、把經過的時間加起來」的最大值，
+所以全部的時間就是這張圖上的\textbf{最長路}，關鍵路徑就是最長的那一條。 這
+和夜市的例題是同一件事：點上有權重，沿著拓樸順序取最大值。
+\end{itemize}
+
+\subsection{什麼時候用、什麼時候不能用}
+
+\begin{itemize}
+\item 題目給的是有向圖，而且保證（或可以檢查）沒有環，問最長、最短、幾種、走
+不走得到：先 Kahn，再照順序推。 權重是負數也沒關係，這是 DAG 比一般圖好做的
+地方。
+\item 一般的有向圖（可能有環）上的最長路沒有好的做法，最短路則要用
+Dijkstra 等演算法（本書第~8~章）；沒有權重的最短路用第 1 本第~11~章的 BFS。
+\item 圖有環、但環上的點可以合併成一個點時（例如一群互相走得到的點可以一次全
+部拿走），合併之後就是 DAG。 實作練習裡「不往下走的登山收集」是這種題目。
+\end{itemize}
+
+\section{字典序最小的拓樸順序}
+\label{sec:lex-topo}
+
+拓樸順序通常不只一個，有些題目要求「字典序最小」的那一個：第一個數盡量小；
+第一個數相同時，第二個數盡量小；依此類推，和字典裡的單字比先後的方法一樣，
+叫\textbf{字典序}（lexicographic order）。 例如 $3, 1, 5$ 比 $3, 2, 1$ 小，
+因為第一個數相同，第二個數 $1 < 2$。
+
+做法是把 Kahn 的佇列換成優先佇列，每次拿出目前入度 $0$ 的點裡編號最小的。 第
+~\ref{sec:kahn}~節的圖~\ref{fig:hotpot} 上，這樣排出 $3, 2, 4, 6, 5, 7, 1$。
+為什麼對：
+
+\begin{itemize}
+\item 排第一個時，能排的只有入度 $0$ 的點。 這些點每一個都真的可以排第一：排
+了它之後，剩下的圖仍然沒有環，一定排得完。 所以第一個數最小可以是「入度 $0$
+的點裡最小的」，而要字典序最小，就一定要選它。
+\item 第一個數決定之後，問題變成在剩下的圖上找字典序最小的順序，同樣的理由再
+用一次。 每一步都是同一個理由，所以每一步都選最小的就對了。
+\end{itemize}
+
+這是一個第 1 本第~7~章的貪心：每一步選當下最小的，選了不回頭。 能這樣做，是因為
+「每個能排的點都不會讓後面排不完」。
+
+用佇列的 Kahn 不保證字典序最小。 第~\ref{sec:ex-checklist}~小節的例題就是反
+例：佇列排出 $1, 2, 4, 3$，字典序最小的是 $1, 2, 3, 4$。 DFS 的順序更難控
+制，求字典序最小時不要用。
+
+\textbf{另一種「編號小的優先」。} 有些題目要求的是：「$1$ 號排得越前面越好；在這個前提下，$2$ 號
+排得越前面越好……」。 兩者聽起來很像，答案卻可能不同。 例如三個點，只有一條
+邊 $3 \to 1$：字典序最小是 $2, 3, 1$；要 $1$ 號盡量前面，答案是 $3, 1, 2$，
+$1$ 號排在第二，比前一個答案早。 第二種要求的做法是：把每條邊反過來，用每次
+拿編號\textbf{最大}的優先佇列排一次，再把結果倒過來（本章練習第~5~題）。 讀
+題時看清楚題目要的是哪一種。
+
+\subsection{例題：合併多份名次表}
+\label{sec:ex-rankings}
+
+\textbf{題意}（\akiref{merging-partial-rankings}{合併多份名次表}）
+
+\begin{itemize}
+\item $n$ 位選手、$q$ 份部分名次表。 每份表是一串不重複的選手編號，表裡排在前
+面的人，在總排名中也必須排在後面的人之前。 表的長度 $k_i$ 可以很長，也可以只
+有一個人。
+\item 排出一個符合所有表的總排名（$1$ 到 $n$ 的排列）。 存在的話輸出字典序最
+小的一個；表之間互相矛盾時輸出 \texttt{-1}。
+\item $n, q \le 2 \times 10^5$，所有表的長度總和 $L \le 4 \times 10^5$，單份
+表可能接近 $n$ 人。
+\end{itemize}
+
+例如 $n = 6$，三份表是 $(5, 2, 4)$、$(6, 2)$、$(3, 1)$。 第一名只能從 $3$、
+$5$、$6$ 裡選（$1$ 要等 $3$，$2$ 要等 $5$ 和 $6$，$4$ 要等 $2$），選 $3$；接
+著 $1$ 可以排了，選 $1$；依此類推，答案是 \texttt{3 1 5 6 2 4}。
+
+\textbf{想法}
+
+先把名次表變成圖。 最直接的想法是：一份表裡每一對「前面的人、後面的人」都建
+一條邊。 長度 $k$ 的表有 $k(k - 1)/2$ 對，$k = 2 \times 10^5$ 時大約
+$2 \times 10^{10}$ 條邊，記憶體和時間都不夠。 在本書測試的環境下，這樣寫跑最
+大的幾筆測試資料，邊還沒建完，記憶體就超過 $4$ GB，程式中止。
+
+觀察：一份表 $(x_1, x_2, \ldots, x_k)$ 只要建相鄰兩人的邊
+$x_1 \to x_2 \to \cdots \to x_k$ 就夠了。 如果每條相鄰的邊都遵守，$x_1$ 在
+$x_2$ 前、$x_2$ 在 $x_3$ 前，$x_1$ 自然在 $x_3$ 前，表裡任兩人的先後都會遵守。
+所以兩種建法允許的總排名完全相同，邊數卻只有 $k - 1$ 條。 全部的邊加起來不超
+過 $L$，是 $4 \times 10^5$。
+
+建好圖，剩下的就是本節的優先佇列 Kahn：
+
+\begin{itemize}
+\item 字典序最小：每次拿入度 $0$ 的人裡編號最小的。
+\item 矛盾：表之間矛盾，圖上就有環，排出來的人不到 $n$ 個，輸出 \texttt{-1}。
+\item 沒有出現在任何表裡的人：入度是 $0$，一開始就在優先佇列裡，輪到他最小時
+就會排進去，不用特別處理。
+\item 同一對人在好幾份表裡都相鄰：會建出重複的邊，入度也加了好幾次。 拿出前面
+那個人時，每條重複的邊各減一次，入度剛好減完，不用去掉重複的邊。
+\end{itemize}
+
+用範例跑一次。 相鄰的邊是 $5 \to 2$、$2 \to 4$、$6 \to 2$、$3 \to 1$：
+
+\begin{center}
+\begin{tabular}{clc}
+\toprule
+拿出 & 入度減一 & 之後的優先佇列 \\
+\midrule
+ & & $\{3, 5, 6\}$ \\
+3 & 1：$1 \to 0$，放入 & $\{1, 5, 6\}$ \\
+1 & & $\{5, 6\}$ \\
+5 & 2：$2 \to 1$ & $\{6\}$ \\
+6 & 2：$1 \to 0$，放入 & $\{2\}$ \\
+2 & 4：$1 \to 0$，放入 & $\{4\}$ \\
+4 & & $\{\}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+第三步拿出 $5$ 時，$2$ 還在等 $6$，不能排；所以 $5$、$6$ 都排完才輪到 $2$。
+
+同樣的模型也出現在別的地方：好幾個部門各自交了一份「先做這個、再做那個」的
+清單，要合成一份總排程；幾份資料各自記錄了部分的時間先後，要拼出一條完整的
+時間線，並發現互相矛盾的紀錄。
+
+\textbf{程式}
+
+\begin{example}[label=ex:rankings]{cpp}{(rankings.cpp) 合併多份名次表}
+#include <functional>
+#include <iostream>
+#include <queue>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, q;
+    cin >> n >> q;
+    vector<vector<int>> adj(n + 1);
+    vector<int> indeg(n + 1, 0);
+    for (int i = 0; i < q; i++) {
+        int k;
+        cin >> k;
+        int prev = 0;                       // 這份表的上一位，0 表示還沒有
+        for (int j = 0; j < k; j++) {
+            int x;
+            cin >> x;
+            if (prev != 0) {                // 只建相鄰兩人的邊
+                adj[prev].push_back(x);
+                indeg[x]++;
+            }
+            prev = x;
+        }
+    }
+    priority_queue<int, vector<int>, greater<int>> pq;   // 小的在上
+    for (int v = 1; v <= n; v++) {
+        if (indeg[v] == 0) {
+            pq.push(v);
+        }
+    }
+    vector<int> order;
+    while (!pq.empty()) {
+        int u = pq.top();                   // 能排的人裡編號最小的
+        pq.pop();
+        order.push_back(u);
+        for (int v : adj[u]) {
+            indeg[v]--;
+            if (indeg[v] == 0) {
+                pq.push(v);
+            }
+        }
+    }
+    if ((int)order.size() < n) {            // 有人永遠排不進去：矛盾
+        cout << -1 << '\n';
+        return 0;
+    }
+    for (int i = 0; i < n; i++) {
+        cout << order[i] << (i + 1 < n ? ' ' : '\n');
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+6 3 \\
+3 5 2 4 \\
+2 6 2 \\
+2 3 1 \\
+}{
+3 1 5 6 2 4 \\
+}
+
+\begin{itemize}
+\item 選手編號從 $1$ 開始，所以用 \texttt{prev = 0} 表示「這份表還沒讀到人」。
+每份表開始時都要重設，否則上一份表的最後一個人會和這一份的第一個人連起來。
+\item 和第~\ref{sec:ex-checklist}~小節的例題相比，只差在容器：那裡是
+\texttt{queue} 加上每批排序，這裡是 \texttt{priority\_queue}。
+\end{itemize}
+
+\textbf{複雜度}
+
+建圖 $O(n + L)$。 每個人進出優先佇列各一次，每次 $O(\log n)$；每條邊讓入度減
+一次。 總共 $O((n + L) \log n)$。 最大的測試資料在本書測試的環境下約 $0.2$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{每一對都建邊}：答案是對的，但長的表會讓邊數變成 $k^2$ 的量級，
+見上面「想法」的實測。
+\item \textbf{用一般佇列}：\texttt{priority\_queue} 換成 \texttt{queue}，範例
+的輸入印出 \texttt{3 5 6 1 2 4}。 它是合法的總排名，但不是字典序最小：一開始
+佇列裡的 $5$、$6$ 排在 $3$ 放進來的 $1$ 前面。
+\item \textbf{只對串列去掉重複的邊}：把重複的邊從 \texttt{adj} 去掉，入度卻照
+樣每次加一。 輸入 \texttt{3 2}、\texttt{2 1 2}、\texttt{2 1 2}（兩份表都是
+$1, 2$），正確答案是 \texttt{1 2 3}，這樣寫會印出 \texttt{-1}：$2$ 的入度是
+$2$，卻只會被減一次。 要去重就兩邊一起去，不然就都不要去。
+\item \textbf{沒有檢查人數}：少了最後的 \texttt{order.size()} 檢查，直接印出
+\texttt{order}。 範例~2（第一行 \texttt{4 3}，三份表 $(2, 3, 4)$、$(2, 3)$、
+$(4, 2)$）應該印 \texttt{-1}，這樣寫只印出 \texttt{1}：$2$、$3$、$4$ 在環上，
+一個都排不進去。
+\end{itemize}
+
+\section{本章常見錯誤}
+\label{sec:dag-pitfalls}
+
+\begin{center}
+\begin{tabular}{p{0.22\linewidth}p{0.44\linewidth}p{0.22\linewidth}}
+\toprule
+錯誤 & 例子 & 見 \\
+\midrule
+以為編號就是順序 & 照編號 $1$ 到 $n$ 做 DP；照編號倒著彙整（第 1 本第~6~章） &
+第~\ref{sec:ex-nightmarket}~節 \\
+容器選錯 & 題目要先進先出卻用優先佇列；要字典序最小卻用佇列 &
+第~\ref{sec:ex-checklist}、\ref{sec:ex-rankings}~節 \\
+放入佇列的時機 & 入度一減就放入，同一個點放好幾次 &
+第~\ref{sec:ex-checklist}~節 \\
+沒有檢查環 & 排出的點不到 $n$ 個卻照樣輸出；DFS 只用兩種狀態，把會合當成環 &
+第~\ref{sec:kahn-cycle}、\ref{sec:dfs-topo}、\ref{sec:ex-rankings}~節 \\
+走不到的點 & 走不到的點答案設成 $0$，被當成一條總和 $0$ 的路 &
+第~\ref{sec:ex-nightmarket}~節 \\
+重複的邊 & 串列去重、入度沒有去重 & 第~\ref{sec:ex-rankings}~節 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+另外兩個每一章都會遇到的錯誤，這一章也有：總和超過 \texttt{int}（夜市的總和
+到 $2 \times 10^{14}$），以及遞迴太深（DFS 在長鏈上）。
+
+\section{本章練習}
+\label{sec:ch18-exercises}
+
+\begin{drills}[label=drills:ch18]
+\item 下面兩張圖各有幾個拓樸順序？ 全部列出來，或說明怎麼算。
+\begin{enumerate}
+\item 五個點，邊是 $1 \to 3$、$2 \to 3$、$3 \to 4$、$3 \to 5$。
+\item 四個點，邊是 $1 \to 2$、$2 \to 3$、$3 \to 4$、$1 \to 4$。 拿掉
+$1 \to 4$ 之後呢？
+\end{enumerate}
+
+\item 在圖~\ref{fig:hotpot} 上跑 Kahn 演算法，但把佇列換成堆疊（後進先出）：
+一開始依編號放入 $3$、$4$、$6$，每次拿最後放進去的，新放入的點照串列順序放。
+寫出每一步拿出的點和堆疊的內容，驗證排出來是 $6, 4, 3, 5, 7, 2, 1$。
+
+\item 下面的程式想判斷有向圖有沒有環。 它錯在哪裡？ 給一組沒有環、它卻印出
+\texttt{yes} 的輸入，並說明怎麼改。
+\begin{code}{cpp}{練習 3}
+bool hasCycle = false;
+void dfs(int u) {
+    seen[u] = true;
+    for (int v : adj[u]) {
+        if (seen[v]) {
+            hasCycle = true;
+        } else {
+            dfs(v);
+        }
+    }
+}
+// main 裡：每個還沒看過的點都 dfs 一次，最後印出 yes 或 no
+\end{code}
+
+\item 估計下列做法的時間，$n = m = 2 \times 10^5$。
+\begin{enumerate}
+\item 第~\ref{sec:kahn}~節開頭的做法：每一輪掃過所有點，找一個入度 $0$ 而且還
+沒排的點。 最壞情況大約要檢查幾個點？ 什麼樣的圖會達到？
+\item 範例~\ref{ex:checklist} 裡 \texttt{sort} 的總時間，最壞是什麼量級？
+\item 範例~\ref{ex:rankings} 如果一份表有 $k$ 人、每一對都建邊，會建幾條邊？
+$k = 2 \times 10^5$ 時大約多少？
+\end{enumerate}
+
+\item 圖有三個點、一條邊 $3 \to 1$。
+\begin{enumerate}
+\item 用優先佇列（每次拿最小的）的 Kahn 排出什麼？
+\item 把邊反過來變成 $1 \to 3$，用每次拿\textbf{最大}的優先佇列排一次，再把結
+果倒過來，得到什麼？ 這個順序有什麼性質？
+\item 再加一條邊 $2 \to 1$（原圖是 $3 \to 1$、$2 \to 1$），兩種做法的答案各是
+什麼？ 會不會一樣？
+\end{enumerate}
+
+\item 第~\ref{sec:critical-path}~小節的火鍋：
+\begin{enumerate}
+\item 洗菜切菜從 $30$ 分鐘變成 $45$ 分鐘，開飯時間會變嗎？ 變成 $55$ 分鐘呢？
+關鍵路徑變成哪一條？
+\item 家裡有人可以幫忙，讓某一件事縮短 $10$ 分鐘（開火上桌本身只要 $5$ 分鐘，
+不算在內）。 縮短哪一件，開飯時間會提早？ 提早多少？ 如果能縮短 $30$ 分鐘呢？
+\end{enumerate}
+\end{drills}
+
+\section{實作練習}
+\label{sec:ch18-practice}
+
+下面是 Aki-Judge 上和本章相關的題目，依小節分組，本章的三題例題也列在裡面。
+難度分四階：暖身是直接套用本章的寫法；基本要自己把題目轉成圖，或在 Kahn 上加
+一點變化；實戰的題敘比較長，要先把題目轉換成本章的形狀；挑戰會和其他章的技
+巧合在一起。 這一章的題目還在增加中，之後會再補。
+
+\begin{center}
+\begin{tabular}{llc}
+\toprule
+小節 & 題目 & 難度 \\
+\midrule
+Kahn 與找環 & \akiref{setup-checklist-for-the-exhibition}{成果展布置的工作清單} & 暖身（例題） \\
+ & \akiref{achievements-that-never-unlock}{永遠解不開的成就} & 暖身 \\
+ & \akiref{rebuild-rounds-after-an-edit}{改檔後的重新編譯輪次} & 基本 \\
+ & \akiref{threshold-skill-tree}{門檻式技能樹} & 實戰 \\
+ & \akiref{filing-ballots-in-batches}{投票分批整理} & 挑戰 \\
+\midrule
+DFS 與環 & \akiref{the-first-contradictory-rule}{第一條自相矛盾的排程規則} & 實戰 \\
+\midrule
+DAG 上的動態規劃 & \akiref{counting-routes-through-the-school-fair}{園遊會攤位的走法數} & 暖身 \\
+ & \akiref{best-night-market-route-and-how-many-ways}{夜市路線的最高滿意度與方案數} & 基本（例題） \\
+ & \akiref{orienteering-passphrase}{定向越野的通關密語} & 實戰 \\
+ & \akiref{stamp-collecting-without-going-downhill}{不往下走的登山收集} & 實戰 \\
+\midrule
+字典序最小 & \akiref{merging-partial-rankings}{合併多份名次表} & 基本（例題） \\
+ & \akiref{back-to-back-presentations}{連著上台的報告順序} & 實戰 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{讀完你應該會}
+\label{sec:ch18-checklist}
+
+\begin{itemize}
+\item 看到「誰要在誰之前」「要等前面的做完」的題目，能把它畫成有向圖，說出點和
+邊各代表什麼，並檢查一個給定的順序是不是拓樸順序。
+\item 能寫出 Kahn 演算法，用排出的點數判斷有沒有環，並依題目的要求選佇列、每批
+排序或優先佇列。
+\item 能用三種狀態的 DFS 排拓樸順序或印出一個環，並在 $n$ 很大時改成自己的堆
+疊。
+\item 能照拓樸順序做 DP，求最長路、最佳路線的數量和關鍵路徑，並正確處理走不到
+的點。
+\item 能用優先佇列求字典序最小的拓樸順序，說得出為什麼每一步選最小的不會錯。
+\end{itemize}
+
+\textbf{延伸閱讀}（書末會整理完整的參考資料）
+
+\begin{itemize}
+\item Antti Laaksonen，\textit{Competitive Programmer's Handbook}，第 16 章前
+半：用 DFS 做拓樸排序與找環，以及在 DAG 上數路徑，篇幅很短。
+\item Steven Halim 等，\textit{Competitive Programming 4}，Book 1，4.2.6 節：
+DFS 和 Kahn 兩種寫法並列，並提到把佇列換成優先佇列。
+\item Thomas H. Cormen 等，\textit{Introduction to Algorithms}，第 4 版，20.4
+節（DFS 拓樸排序的證明）與 22.2 節（DAG 上的最短路，以及專案排程的關鍵路徑）。
+\item 劉汝佳，《算法競賽入門經典》第 2 版，6.4.3 節（拓撲排序）與 9.2 節（DAG
+上的動態規劃）。
+\end{itemize}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item
+\begin{enumerate}
+\item $4$ 個。 $3$ 一定在 $1$、$2$ 之後、$4$、$5$ 之前，所以順序是「$1$、$2$
+某種排法，$3$，$4$、$5$ 某種排法」，$2 \times 2 = 4$：$1\,2\,3\,4\,5$、
+$1\,2\,3\,5\,4$、$2\,1\,3\,4\,5$、$2\,1\,3\,5\,4$。
+\item 只有 $1$ 個，$1, 2, 3, 4$：$1 \to 2 \to 3 \to 4$ 已經把四個點的先後全部
+定死。 拿掉 $1 \to 4$ 之後仍然只有這一個，因為 $1$ 在 $4$ 之前可以從另外三
+條邊推出來。 這也是範例~\ref{ex:rankings} 只建相鄰邊的理由。
+\end{enumerate}
+
+\item 堆疊的頂端寫在右邊。
+\begin{center}
+\begin{tabular}{cll}
+\toprule
+拿出 & 入度減一 & 之後的堆疊 \\
+\midrule
+ & & 3 4 6 \\
+6 & 5：$2 \to 1$ & 3 4 \\
+4 & 1：$4 \to 3$ & 3 \\
+3 & 2：$1 \to 0$，7：$1 \to 0$，5：$1 \to 0$ & 2 7 5 \\
+5 & 1：$3 \to 2$ & 2 7 \\
+7 & 1：$2 \to 1$ & 2 \\
+2 & 1：$1 \to 0$ & 1 \\
+1 & & （空）\\
+\bottomrule
+\end{tabular}
+\end{center}
+順序是 $6, 4, 3, 5, 7, 2, 1$。 第 3 步拿出 $3$ 時，三個點依串列順序 $2, 7, 5$
+放入，最後放的 $5$ 最先拿出。 這個順序剛好和第~\ref{sec:dfs-topo}~節 DFS 排出
+來的相同，但這只是巧合，換一張圖通常不同。
+
+\item 它把「看過」都當成環，沒有分辨「還在堆疊上」和「已經結束」。 輸入
+$1 \to 2$、$1 \to 3$、$2 \to 4$、$3 \to 4$ 沒有環，但第二次走到 $4$ 時
+\texttt{seen[4]} 已經是 \texttt{true}，印出 \texttt{yes}。 改法：用三種狀態，
+進入時設成 $1$，\texttt{for} 迴圈結束後設成 $2$，只有 \texttt{color[v] == 1}
+才是環。
+
+\item
+\begin{enumerate}
+\item 共 $n$ 輪，每輪最多掃 $n$ 個點，大約 $n^2 = 4 \times 10^{10}$ 次。 一條
+長鏈 $n \to n - 1 \to \cdots \to 1$ 就會達到：每一輪能排的點只有一個，而且是
+還沒排的點裡編號最大的，要掃到最後才找到。
+\item 每個點只會在某一批裡被排序一次，所以所有批次的大小加起來不超過 $n$。 一
+批大小 $b$ 的排序是 $O(b \log b) \le O(b \log n)$，總和是 $O(n \log n)$。
+\item $k(k - 1)/2$ 條。 $k = 2 \times 10^5$ 時約 $2 \times 10^{10}$ 條，每條
+邊至少要存一個 \texttt{int}，光是記憶體就要 $80$ GB。
+\end{enumerate}
+
+\item
+\begin{enumerate}
+\item 一開始入度 $0$ 的是 $2$、$3$，拿 $2$；再拿 $3$，$1$ 變成可以排。 答案
+$2, 3, 1$。
+\item 反過來的圖只有 $1 \to 3$。 一開始入度 $0$ 的是 $1$、$2$，拿最大的 $2$；
+再拿 $1$，$3$ 可以排了，拿 $3$。 得到 $2, 1, 3$，倒過來是 $3, 1, 2$。 它是原
+圖的拓樸順序，而且 $1$ 號排在所有拓樸順序裡最前面的位置（$1$ 號一定要在 $3$
+後面，最早只能排第二）。
+\item 原圖 $3 \to 1$、$2 \to 1$。 (a) 的做法：$2, 3, 1$。 (b) 的做法：反圖
+$1 \to 3$、$1 \to 2$，先拿 $1$，再拿 $3$、$2$，得到 $1, 3, 2$，倒過來是
+$2, 3, 1$。 這次一樣：$1$ 號一定是最後一個，兩種做法都把剩下的 $2$、$3$ 小的排
+前面。 只有在「讓 $1$ 號提早」和「讓第一個數最小」互相衝突時，兩種答案才不同，
+(a)、(b) 就是這種情況。
+\end{enumerate}
+
+\item
+\begin{enumerate}
+\item 洗菜切菜的寬裕時間是 $20$ 分鐘。 變成 $45$ 分鐘只多 $15$，還在寬裕時間
+內，開飯仍是 $95$ 分鐘。 變成 $55$ 分鐘時，它在 $40 + 55 = 95$ 分鐘才完成，
+開火上桌 $95$ 開始、$100$ 完成，開飯延到 $100$ 分鐘。 這時最長的是 買菜
+$\to$ 洗菜切菜 $\to$ 開火上桌（$40 + 55 + 5$），它變成新的關鍵路徑。
+\item 從起點到終點的路徑有五條：經過煮湯底的兩條是 $95$（買菜起頭）和 $75$
+（借電磁爐起頭），買菜 $\to$ 洗菜切菜 $\to$ 開火上桌是 $75$，買菜 $\to$
+調沾醬 $\to$ 開火上桌是 $55$，擺碗筷 $\to$ 開火上桌是 $10$。 開飯時間是最長
+那條的長度。 縮短買菜或煮湯底 $10$ 分鐘，$95$ 那條變成 $85$，其他路徑都不超
+過 $85$，開飯提早 $10$ 分鐘。 縮短其他事都不在 $95$ 那條上，沒有幫助。 如果
+縮短 $30$ 分鐘，$95$ 那條變成 $65$，但另外有一條 $75$ 的路徑沒有變短（縮短買
+菜時是借電磁爐那條，縮短煮湯底時是洗菜切菜那條），開飯只提早到 $75$ 分鐘，也
+就是只提早 $20$ 分鐘。 關鍵路徑縮短到一個程度，別的路徑就會變成關鍵路徑。
+\end{enumerate}
+\end{enumerate}

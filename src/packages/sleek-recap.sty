@@ -1,0 +1,58 @@
+\ProvidesPackage{sleek-recap}[2026/11/16 v1.1 Bridge-book recap box]
+
+%%%%%%%%%%%%%%%%
+% Requirements %
+%%%%%%%%%%%%%%%%
+
+\RequirePackage{tcolorbox}
+\RequirePackage{xcolor}
+\tcbuselibrary{skins, breakable}
+
+%%%%%%%%%%%%%%%%
+% Environments %
+%%%%%%%%%%%%%%%%
+
+% 銜接書回顧：用到《C++ 程式設計：給學過 C 的人》已經講過的語法或技巧時，
+% 先用這個框把重點講一遍，並寫出是那本書的第幾章，框結束後再接本書的內容。
+% 樣式與 sleek-code 的 iotermbox 一致：直角、深灰框、灰底標題列。
+% 可選參數是小標題，例如
+%   \begin{bridgerecap}[sort 的比較函式]
+%   ...
+%   \end{bridgerecap}
+% 框內可以放 code 環境。
+\newtcolorbox{bridgerecap}[1][]{%
+    enhanced jigsaw, breakable,
+    sharp corners, boxrule=0.5mm,
+    colback=black!3, colframe=black!65, coltext=black,
+    colbacktitle=black!65, coltitle=white, fonttitle=\bfseries,
+    title={銜接書回顧\if\relax\detokenize{#1}\relax\else：#1\fi},
+    left=3mm, right=3mm, top=2mm, bottom=2mm,
+    before skip=\medskipamount, after skip=\medskipamount,
+}
+
+% APCS 小提醒：跟 APCS 實作題直接相關的提醒，不考 APCS 的讀者可以跳過。
+% 每章最多兩三個；只寫官方公開、確定的事，以及實作習慣。
+\definecolor{apcsStroke}{HTML}{B72B35}
+\newtcolorbox{apcsnote}{%
+    enhanced jigsaw, breakable,
+    sharp corners, boxrule=0.5mm,
+    colback=apcsStroke!4, colframe=apcsStroke, coltext=black,
+    colbacktitle=apcsStroke, coltitle=white, fonttitle=\bfseries,
+    title={APCS 小提醒（不考 APCS 的讀者可以跳過）},
+    left=3mm, right=3mm, top=2mm, bottom=2mm,
+    before skip=\medskipamount, after skip=\medskipamount,
+}
+
+% 為什麼一定對：較長的正確性論證。第一次讀可以跳過，不影響後面寫程式。
+% 可選參數是小標題。
+\newtcolorbox{whybox}[1][]{%
+    enhanced jigsaw, breakable,
+    sharp corners, boxrule=0.4mm,
+    colback=white, colframe=black!45, coltext=black,
+    colbacktitle=black!12, coltitle=black, fonttitle=\bfseries,
+    title={為什麼一定對\if\relax\detokenize{#1}\relax\else：#1\fi（第一次讀可以跳過）},
+    left=3mm, right=3mm, top=2mm, bottom=2mm,
+    before skip=\medskipamount, after skip=\medskipamount,
+}
+
+\endinput

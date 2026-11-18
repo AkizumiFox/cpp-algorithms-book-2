@@ -1,0 +1,1230 @@
+\chapter{區間 DP}
+\label{ch:interval-dp}
+
+老師的桌上有一排四疊作業簿，由左到右是 $6$、$6$、$5$、$7$ 本。 要把它們合成
+一疊交回教務處，可是每次只能把\textbf{相鄰}的兩疊搬到一起，搬一次花的力氣
+是這兩疊加起來的本數。 合成一疊要搬三次，怎麼搬最省力？ 往下讀之前，先想一
+條規則，例如「每次合併加起來最少的相鄰兩疊」，照你的規則算一次總共花多少
+力氣。
+
+《C++ 演算法解題 1：APCS 實作題核心》（以下簡稱第 1 本）第~9~章 9.6 節整理過一維動態規劃常見的四種狀態：前 $i$ 個、前 $i$ 個再加上
+第 $i$ 個的情況、以第 $i$ 個結尾、把前 $i$ 個切成好幾段。 這四種都從序列的
+左端長出來，子問題永遠是「從頭開始的一段」。 作業簿的問題不是這樣：先合併中
+間的兩疊之後，剩下要處理的東西夾在中間，左右兩端都可能還沒動。 這一章的狀態
+要用兩個數字描述一段：左端 $l$ 和右端 $r$。 這種動態規劃叫\textbf{區間
+DP}（interval DP）。
+
+這一章先用作業簿把區間 DP 的四件事走一遍，重點是狀態的意思和計算順序，並估
+計 $O(n^3)$ 到底能處理多大的 $n$。 接著三題例題練三種常見的轉移：在區間裡挑
+一個切點把它分成兩半、看最左邊的人和誰配成一對、從兩端往內縮。 最後處理排
+成一圈的情況，以及什麼時候不該用區間 DP。
+
+動態規劃的四件事、記憶化和填表的關係，第 1 本第~9~章都講過，這一章直接用。 前綴和
+在第 1 本第~5~章。 用到的語法只有二維的 \texttt{vector}（銜接書第~3~章 3.6 節）。
+沒讀過銜接書的讀者，只要知道 \texttt{vector<vector<long long>> dp(n, vector<long long>(n, 0))}
+會建出一張 $n \times n$、全部是 $0$ 的表格，就能讀這一章。
+
+\section{一段一段的子問題}
+\label{sec:ivdp-basic}
+
+\subsection{先試貪心，再寫暴力解}
+
+章首的規則「每次合併加起來最少的相鄰兩疊」，在 $6, 6, 5, 7$ 上是這樣走的：相
+鄰兩疊的和是 $12$、$11$、$12$，先合併 $6$ 和 $5$；接著剩下 $6, 11, 7$，和是
+$17$、$18$，合併 $6$ 和 $11$；最後 $17$ 和 $7$。 下表把它和另一種搬法並排：
+
+\begin{center}
+\begin{tabular}{lccc|c}
+\toprule
+搬法 & 第 1 次 & 第 2 次 & 第 3 次 & 總力氣 \\
+\midrule
+每次合併最少的 & $6 + 5 = 11$ & $6 + 11 = 17$ & $17 + 7 = 24$ & $52$ \\
+左右各合一半 & $6 + 6 = 12$ & $5 + 7 = 12$ & $12 + 12 = 24$ & $48$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+貪心先合併的 $5$ 本跑進了 $11$ 本那一疊，之後每次搬都要把它們再搬一次。 最
+後一次一定是把全部 $24$ 本搬在一起，哪種搬法都一樣；差別在前面兩次。
+
+最直接的做法是試遍所有搬法。 有 $n$ 疊時，第一次有 $n - 1$ 對相鄰的可以選，
+第二次有 $n - 2$ 對，一直到最後只剩一對，共 $(n - 1)!$ 種搬法。 $n = 20$ 時
+大約是 $1.2 \times 10^{17}$ 種，一定來不及。 和第 1 本第~9~章一樣，要找「大問題可
+以用小問題的答案算出來」的關係。
+
+\subsection{看最後一次合併}
+\label{sec:ivdp-last}
+
+不管怎麼搬，最後一次合併之前桌上剩兩疊。 合併只發生在相鄰的兩疊之間，所以
+任何時刻桌上的每一疊，都是原本\textbf{連續的一段}作業簿：左邊那疊是第 $1$ 到
+第 $k$ 疊合起來的，右邊那疊是第 $k + 1$ 到第 $n$ 疊合起來的，$k$ 是
+$1$ 到 $n - 1$ 之間的某個數。
+
+\begin{center}
+\begin{tikzpicture}[x=1cm, y=1cm]
+\foreach \v [count=\i] in {6,6,5,7} {
+  \node[cell] at (\i,0) {\v};
+  \node[idxlbl] at (\i,0.7) {\i};
+}
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, draw=memStroke]
+  (0.6,-0.6) -- (2.4,-0.6) node[midway, below=6pt, font=\small] {第 $1$～$2$ 疊};
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, draw=optStroke]
+  (2.6,-0.6) -- (4.4,-0.6) node[midway, below=6pt, font=\small] {第 $3$～$4$ 疊};
+\draw[dashed, black!50] (2.5,0.55) -- (2.5,-1.4);
+\node[font=\small, right] at (4.8,0) {最後一次合併：左右兩疊，$k = 2$};
+\end{tikzpicture}
+\diagcaption{最後一次合併把一排作業簿分成左右兩段。 左段裡怎麼搬，和右段完全
+無關。}
+\label{fig:ivdp-last}
+\end{center}
+
+把 $k$ 固定下來看：
+
+\begin{itemize}
+\item 最後一次合併花的力氣是全部的本數，和 $k$ 無關。
+\item 在那之前，左段第 $1$ 到 $k$ 疊自己合成一疊，右段第 $k + 1$ 到 $n$ 疊自
+己合成一疊。 兩段之間從來沒有合併過，左段怎麼搬不影響右段的花費，反過來也
+一樣。 所以兩段都應該用各自最省力的搬法。
+\end{itemize}
+
+左段是「第 $1$ 到第 $k$ 疊合成一疊」，右段是「第 $k + 1$ 到第 $n$ 疊合成一疊」。
+右段不是從第 $1$ 疊開始的，而它自己再拆一次，又會出現兩端都在中間的一段。 所
+以子問題要能描述任意一段：
+
+\begin{center}
+\fbox{\parbox{0.86\linewidth}{\centering
+$\mathrm{dp}(l, r)$：把第 $l$ 到第 $r$ 疊（連續的一段）合成一疊，最少要花多少力氣。}}
+\end{center}
+
+照第 1 本第~9~章的四件事寫下來：
+
+\begin{enumerate}
+\item \textbf{狀態}：如上。 $l \le r$，共 $n(n + 1)/2$ 個。
+\item \textbf{轉移}：最後一次合併的分界 $k$ 有 $r - l$ 種可能，每一種都算一
+次，取最小，再加上這一段的總本數 $S(l, r)$：
+\[
+\mathrm{dp}(l, r) = \min_{l \le k < r} \bigl(\mathrm{dp}(l, k) + \mathrm{dp}(k + 1, r)\bigr) + S(l, r).
+\]
+$S(l, r)$ 用第 1 本第~5~章的前綴和算，一次減法就有。
+\item \textbf{初始值}：只有一疊時不用搬，$\mathrm{dp}(i, i) = 0$。
+\item \textbf{計算順序}：下一小節講。
+\end{enumerate}
+
+答案是 $\mathrm{dp}(1, n)$。 這裡的 $k$ 叫做\textbf{切點}（split point），區間
+DP 很多題目的轉移都是「枚舉切點，左右兩段各自用最好的做法」。
+
+\subsection{狀態的第五種寫法}
+\label{sec:ivdp-shapes}
+
+把第 1 本第~9~章 9.6 節的表加上一列：
+
+\begin{center}
+\begin{tabular}{p{0.25\linewidth}p{0.36\linewidth}p{0.29\linewidth}}
+\toprule
+狀態 & 轉移在看什麼 & 例子 \\
+\midrule
+前 $i$ 個（或金額 $x$） & 最後一步是哪一種 & 郵票、跳格子（第 1 本第~9~章） \\
+前 $i$ 個，而且第 $i$ 個是某種情況 & 第 $i$ 個和第 $i - 1$ 個能不能相鄰 & 招牌燈、大夜班（第 1 本第~9~章） \\
+以第 $i$ 個結尾的連續一段 & 接在前一段後面，或重新開始 & 最大區間和（第 1 本第~9~章） \\
+前 $i$ 個切成好幾段 & 最後一段從哪裡開始 & 分段（第 1 本第~9~章） \\
+\textbf{第 $l$ 到第 $r$ 個這一段} & \textbf{切點在哪裡，或兩端怎麼處理} & \textbf{本章} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+前四種的子問題都是「前 $i$ 個」或「到第 $i$ 個為止」，只要一個數字。 什麼時
+候需要第五種？ 判斷的方法是：把問題拆一次之後，看剩下的子問題長什麼樣子。
+如果剩下的總是從頭開始的一段，用前四種；如果剩下的會是夾在中間的一段（像作業
+簿的右段），或是做法本來就從兩端往內縮（後面的回文），就要用區間。
+
+第~2~章的 $\mathrm{dp}(i, j)$ 也有兩個數字，但意思不同：$i$、$j$ 是\textbf{兩
+個}序列各取多長的前綴。 區間 DP 的 $l$、$r$ 是\textbf{同一個}序列上一段的兩端。
+
+和第 1 本第~9~章一樣，狀態也可以再多記一點資訊。 例如要沿著一條街走過一段攤位，除了
+「已經走過的是哪一段」，還要知道「人現在站在這一段的左端還是右端」，狀態就變
+成 $(l, r, \text{哪一端})$。 本章的實作練習有這樣的題目。
+
+\subsection{計算順序：由短到長}
+\label{sec:ivdp-order}
+
+第 1 本第~9~章的表格是一排，從左填到右就好。 區間 DP 的表格是一張 $n \times n$ 的表，
+只用到 $l \le r$ 的那一半。 先看 $\mathrm{dp}(l, r)$ 會用到哪些格子：$k$ 從
+$l$ 到 $r - 1$，用到的 $\mathrm{dp}(l, k)$ 在同一列的左邊，$\mathrm{dp}(k + 1, r)$
+在同一行的下面。
+
+\begin{center}
+\begin{tikzpicture}[x=1.05cm, y=1.05cm]
+\foreach \c in {1,...,4} {\node[idxlbl] at (\c,0.65) {$r = \c$};}
+\foreach \rr in {1,...,4} {\node[idxlbl] at (0.2,-\rr+1) {$l = \rr$};}
+\foreach \l/\r/\v in {2/2/0, 3/3/0, 2/3/11} {
+  \node[cell] at (\r,-\l+1) {\v};
+}
+\foreach \l/\r/\v in {1/1/0, 1/2/12, 1/3/28, 2/4/29, 3/4/12, 4/4/0} {
+  \node[cell, fill=coreFill, draw=coreStroke] at (\r,-\l+1) {\v};
+}
+\node[hlcell] at (4,0) {48};
+\node[font=\small, right, align=left] at (4.8,-0.4)
+  {$\mathrm{dp}(1, 4)$ 只用到\\同一列左邊、同一行下面\\的格子（藍色），\\它們都比較短};
+\node[font=\small, right, align=left] at (4.8,-2.6)
+  {同一條斜線上的格子\\長度相同};
+\end{tikzpicture}
+\diagcaption{作業簿 $6, 6, 5, 7$ 的表格。 第 $l$ 列第 $r$ 行是 $\mathrm{dp}(l, r)$，
+左下半部用不到。 主對角線是長度 $1$，往右上每一條斜線長度加 $1$。}
+\label{fig:ivdp-table}
+\end{center}
+
+$\mathrm{dp}(l, k)$ 和 $\mathrm{dp}(k + 1, r)$ 都比 $[l, r]$ 短。 所以只要
+\textbf{依區間長度由短到長}填，算到某一格時，它需要的格子一定都算好了。
+圖上同一條斜線的格子長度相同，這個順序等於把斜線依序填滿，右上角的
+$\mathrm{dp}(1, n)$ 最後才填。
+
+最自然的寫法「$l$ 由小到大、$r$ 由小到大」是錯的。 它先把第 $1$ 列整列填完，
+可是 $\mathrm{dp}(1, 4)$ 要用 $\mathrm{dp}(2, 4)$，那在第 $2$ 列，還沒填。 沒
+填的格子還是 $0$，程式會把「右段不用花力氣」當真，算出太小的答案（見本節的常
+見錯誤）。 第 1 本第~10~章的格子一列一列填沒有問題，是因為那裡每一格只用到上面和左
+邊的格子；這裡用到的是\textbf{下面}的格子。
+
+由短到長以外，還有別的順序也對，例如 $l$ 由大到小、$r$ 由小到大：第 $l$ 列
+需要的下面那幾列早就填好，同一列左邊的格子也先填了。 只要每一格用到的格子都
+先算好，順序就是對的，本章練習第~2~題會再看幾種。 本書統一用「由短到長」，
+因為它不用想，對每一種區間 DP 都成立。
+
+不想安排順序時，也可以寫成第 1 本第~9~章的記憶化遞迴：要 $\mathrm{dp}(l, r)$ 就呼叫
+它，它再去呼叫比較短的區間。 每呼叫一層區間至少短 $1$，遞迴最多大約 $n$ 層，
+不用擔心太深。
+
+\begin{example}[label=ex:ivdp-merge]{cpp}{(merge.cpp) 合併一排作業簿的最少力氣}
+#include <climits>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+    vector<long long> pre(n + 1, 0);          // pre[i]：前 i 疊的本數總和
+    for (int i = 1; i <= n; i++) {
+        long long x;
+        cin >> x;
+        pre[i] = pre[i - 1] + x;
+    }
+    // dp[l][r]：把第 l 到第 r 疊合成一疊的最少力氣
+    vector<vector<long long>> dp(n + 1, vector<long long>(n + 1, 0));
+    for (int len = 2; len <= n; len++) {      // 區間長度由短到長
+        for (int l = 1; l + len - 1 <= n; l++) {
+            int r = l + len - 1;
+            long long best = LLONG_MAX;
+            for (int k = l; k < r; k++) {     // 最後一次合併：[l, k] 和 [k + 1, r]
+                best = min(best, dp[l][k] + dp[k + 1][r]);
+            }
+            dp[l][r] = best + (pre[r] - pre[l - 1]);
+        }
+    }
+    cout << dp[1][n] << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 \\
+6 6 5 7 \\
+}{
+48 \\
+}
+
+\begin{itemize}
+\item 疊的編號從 $1$ 開始，\texttt{pre[0] = 0}，第 $l$ 到第 $r$ 疊的總本數是
+\texttt{pre[r] - pre[l - 1]}，$l = 1$ 時也不用特別處理。
+\item 三層迴圈的外層是長度，中間是左端，右端由這兩個算出來。 這三行是區間 DP
+最常見的骨架，後面的例題都用它。
+\item \texttt{dp[i][i]} 開表時就是 $0$，所以長度從 $2$ 開始。 長度至少 $2$ 時
+$k$ 至少有一個可以選，\texttt{best} 一定會被更新，不會拿 \texttt{LLONG\_MAX}
+去加總本數而溢位。
+\end{itemize}
+
+填表的過程（圖~\ref{fig:ivdp-table} 就是填完的樣子）：
+
+\begin{center}
+\begin{tabular}{cccl}
+\toprule
+長度 & 區間 & 本數 & 各個切點 $k$ 的 $\mathrm{dp}(l, k) + \mathrm{dp}(k + 1, r)$ \\
+\midrule
+2 & $[1, 2]$ & 12 & $k = 1$：$0 + 0$ \quad 所以 $\mathrm{dp} = 12$ \\
+2 & $[2, 3]$ & 11 & $k = 2$：$0 + 0$ \quad 所以 $\mathrm{dp} = 11$ \\
+2 & $[3, 4]$ & 12 & $k = 3$：$0 + 0$ \quad 所以 $\mathrm{dp} = 12$ \\
+3 & $[1, 3]$ & 17 & $k = 1$：$0 + 11$；$k = 2$：$12 + 0$ \quad 所以 $\mathrm{dp} = 28$ \\
+3 & $[2, 4]$ & 18 & $k = 2$：$0 + 12$；$k = 3$：$11 + 0$ \quad 所以 $\mathrm{dp} = 29$ \\
+4 & $[1, 4]$ & 24 & $k = 1$：$0 + 29$；$k = 2$：$12 + 12$；$k = 3$：$28 + 0$ \quad 所以 $\mathrm{dp} = 48$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+$\mathrm{dp}(1, 4)$ 在 $k = 2$ 取到最小，也就是表格上「左右各合一半」的搬法。
+
+\subsection{$O(n^3)$ 能處理多大的 $n$}
+\label{sec:ivdp-cost}
+
+照第 1 本第~9~章的估法：狀態數乘上每個狀態要看的選擇數。 長度為 $len$ 的區間有
+$n - len + 1$ 個，每個要試 $len - 1$ 個切點，所以最內層那一行一共執行
+\[
+\sum_{len = 2}^{n} (n - len + 1)(len - 1) = \frac{n^3 - n}{6}
+\]
+次，大約是 $n^3 / 6$。 狀態有 $n^2/2$ 個左右，每個平均看 $n/3$ 個切點，乘起
+來也是這個量級。 這裡的 $1/6$ 不能丟：它讓 $O(n^3)$ 的程式實際上比「$n^3$ 次」
+快好幾倍。
+
+下表是範例~\ref{ex:ivdp-merge} 在隨機輸入上的實測，表格用 \texttt{long long}：
+
+\begin{center}
+\begin{tabular}{rrrr}
+\toprule
+$n$ & 最內層執行次數 & 表格大小 & 在本書測試的環境下 \\
+\midrule
+$200$ & $1.3 \times 10^{6}$ & $0.3$ MB & 約 $0.01$ 秒 \\
+$500$ & $2.1 \times 10^{7}$ & $2$ MB & 約 $0.06$ 秒 \\
+$1000$ & $1.7 \times 10^{8}$ & $8$ MB & 約 $0.5$ 秒 \\
+$2000$ & $1.3 \times 10^{9}$ & $32$ MB & 約 $4$ 秒 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+$n$ 變成兩倍，時間變成大約八倍，這是 $n^3$ 的樣子。 記憶體是 $n^2$ 格，
+$n = 5000$ 時光是一張 \texttt{long long} 的表就要 $200$ MB。 所以看到資料範
+圍時可以這樣判斷：
+
+\begin{itemize}
+\item $n$ 在幾百以內：每個狀態枚舉一個切點的 $O(n^3)$ 很安全。
+\item $n$ 到一兩千：只能讓每個狀態用 $O(1)$ 個選擇，總共 $O(n^2)$，例如第
+~\ref{sec:ivdp-pal}~節的回文。 也要先算表格的記憶體。
+\item $n$ 到 $10^5$：連 $n^2$ 個狀態都存不下，通常不是區間 DP，要換想法。
+\end{itemize}
+
+\begin{apcsnote}
+題目會寫出資料範圍和記憶體限制，動手前先照上面的方法算一次：最內層大約執行
+幾次、表格要幾 MB。 如果題目把測試資料分成幾個子題，$n$ 很小的子題可以先用
+暴力解（試遍所有順序）拿下來，這個暴力解之後也可以拿來和區間 DP 對拍。
+\end{apcsnote}
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{$l$、$r$ 都由小到大}：把外兩層改成 \texttt{for (l = 1; l <= n; l++)}、
+\texttt{for (r = l + 1; r <= n; r++)}。 範例的輸入印出 \texttt{24}，正確答案
+是 $48$。 算 $\mathrm{dp}(1, 4)$ 時第 $2$、$3$ 列還沒填，全是 $0$，程式以
+為「$k = 1$：左段 $0$、右段 $0$」，只算了最後一次合併的 $24$。
+\item \textbf{忘了加這一段的總本數}：轉移只寫 \texttt{dp[l][k] + dp[k + 1][r]}，
+每一格都是 $0$，印出 \texttt{0}。 每個狀態「這一步」的花費要記得加。
+\item \textbf{取最小值的起點設成 $0$}：把 \texttt{best} 的初始值寫成
+\texttt{0}，\texttt{min} 永遠是 $0$，每一格都只剩這一段的總本數，範例的輸
+入印出 \texttt{24}。 取最小值時起點要夠大，例如 \texttt{LLONG\_MAX}，或直接
+用第一個切點的值當起點。
+\end{itemize}
+
+\section{切點枚舉：先做哪一件}
+\label{sec:ivdp-split}
+
+作業簿看的是\textbf{最後}一次合併：它把一段分成左右兩段，兩段各自獨立。 有
+些題目反過來，看\textbf{第一}個動作：第一刀切下去，或第一個東西拿掉，一整段
+就斷成左右兩段，之後兩邊互不影響。 兩種看法的目的相同：挑一個動作，讓剩下的
+問題變成兩段連續、互相獨立的區間。
+
+\subsection{例題：拆除一排相連的攤位}
+\label{sec:ex-ivdp-demolish}
+
+\textbf{題意}（\akiref{demolishing-a-row-of-stalls}{拆除一排相連的攤位}）
+
+\begin{itemize}
+\item 一排 $n$ 間相連的組合屋攤位，第 $i$ 間的震動係數是 $a_i$。 還沒拆的攤
+位裡，連續相鄰、中間沒有空位的一段叫一個區塊，一開始整排是一個區塊。
+\item 每次選一間還沒拆的攤位拆掉，花費是 $a_k \times L$，$L$ 是拆的當下它所
+在區塊的攤位數。 拆完後區塊在這裡斷開，變成左右兩個區塊（一邊可能是空的），
+不會再接回去。
+\item 求拆完全部攤位的最小總花費。 $n \le 150$，$1 \le a_i \le 1000$。
+\end{itemize}
+
+例如 $a = 3, 1, 4, 2$：先拆第 $2$ 間，整排 $4$ 間是一個區塊，花 $1 \times 4$；
+剩下 $\{1\}$ 和 $\{3, 4\}$。 再拆第 $1$ 間花 $3 \times 1$，拆第 $4$ 間花
+$2 \times 2$（區塊 $\{3, 4\}$ 有兩間），拆第 $3$ 間花 $4 \times 1$。 總共
+$4 + 3 + 4 + 4 = 15$，這是最小的。
+
+\textbf{想法}
+
+最直接的做法是試遍拆的順序，有 $n!$ 種，$n = 150$ 完全不可能。 但它仍然有
+用：$n \le 8$ 時用 \texttt{next\_permutation} 枚舉順序、照規則模擬，就是對
+拍用的暴力解。
+
+兩條直覺的貪心都會錯。 「每次先拆係數最大的」錯得最明顯：係數大的攤位在區塊
+還很長的時候拆，乘上的 $L$ 最大。 上面的例子先拆 $4$ 要付 $4 \times 4 = 16$，
+總共 $25$。 「每次先拆係數最小的」聽起來比較合理，但拆的位置同時決定了區塊
+怎麼斷開。 $a = 1, 2, 3, 4$ 時依序拆第 $1$、$2$、$3$、
+$4$ 間，花費 $1 \times 4 + 2 \times 3 + 3 \times 2 + 4 \times 1 = 20$；先拆第
+$2$ 間，整排斷成 $\{1\}$ 和 $\{3, 4\}$，總共只要
+$2 \times 4 + 1 + 3 \times 2 + 4 = 19$。
+
+\textbf{看最後拆的那間行不行？} 學過作業簿，第一個念頭可能是看「最後一個拆的
+攤位」。 可是知道最後拆誰，什麼都沒切開：在它之前，區塊怎麼斷、每次斷成多
+長，全部要看前面的順序。 子問題沒辦法用一段區間描述。
+
+\textbf{看第一個拆的。} 整排 $[1, n]$ 第一個拆的是第 $k$ 間：
+
+\begin{itemize}
+\item 這一下的花費是 $a_k \times n$，因為當下整排是同一個區塊。
+\item 拆完之後，$[1, k - 1]$ 和 $[k + 1, n]$ 是兩個區塊，以後永遠不會接回去。
+左邊的攤位怎麼拆，只影響左邊區塊的長度，和右邊無關。 兩邊各自用最好的拆法。
+\end{itemize}
+
+右邊區塊 $[k + 1, n]$ 再拆一次，又會出現兩端都在中間的區塊，所以狀態是：
+
+\begin{center}
+\fbox{\parbox{0.86\linewidth}{\centering
+$\mathrm{dp}(l, r)$：第 $l$ 到第 $r$ 間剛好是一個完整的區塊時，把它拆完的最小花費。}}
+\end{center}
+
+區塊 $[l, r]$ 裡第一個拆的是第 $k$ 間（$l \le k \le r$），當下區塊有
+$r - l + 1$ 間：
+\[
+\mathrm{dp}(l, r) = \min_{l \le k \le r} \bigl(a_k \times (r - l + 1) + \mathrm{dp}(l, k - 1) + \mathrm{dp}(k + 1, r)\bigr).
+\]
+和作業簿相比有兩點不同。 第一，切點 $k$ 本身被拆掉，左右兩段是 $[l, k - 1]$
+和 $[k + 1, r]$，不含 $k$。 第二，$k = l$ 或 $k = r$ 時其中一段是空的，空區
+塊不用花錢，$\mathrm{dp}(l, l - 1) = \mathrm{dp}(r + 1, r) = 0$。 一間的區塊
+$\mathrm{dp}(i, i) = a_i$，套進式子也對（$k$ 只能是 $i$，兩邊都空），不用另
+外寫。
+
+\begin{center}
+\begin{tikzpicture}[x=1cm, y=1cm]
+\foreach \v [count=\i] in {3,1,4,2} {
+  \node[idxlbl] at (\i,0.7) {\i};
+}
+\node[cell] at (1,0) {3};
+\node[hlcell] at (2,0) {1};
+\node[cell] at (3,0) {4};
+\node[cell] at (4,0) {2};
+\node[font=\small] at (2,-0.8) {先拆，$1 \times 4$};
+\draw[decorate, decoration={brace, amplitude=4pt, mirror}, thick, draw=coreStroke]
+  (0.6,-1.3) -- (1.4,-1.3) node[midway, below=5pt, font=\small] {$\mathrm{dp}(1, 1)$};
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, draw=coreStroke]
+  (2.6,-1.3) -- (4.4,-1.3) node[midway, below=6pt, font=\small] {$\mathrm{dp}(3, 4)$};
+\node[font=\small, right] at (5,0) {$\mathrm{dp}(1, 4)$ 在 $k = 2$ 的候選：};
+\node[font=\small, right] at (5,-0.7) {$4 + \mathrm{dp}(1, 1) + \mathrm{dp}(3, 4) = 4 + 3 + 8 = 15$};
+\end{tikzpicture}
+\diagcaption{區塊 $[1, 4]$ 先拆第 $2$ 間，剩下 $[1, 1]$ 和 $[3, 4]$ 兩個獨立
+的區塊。 $\mathrm{dp}(3, 4) = 8$：先拆第 $4$ 間（$2 \times 2$）再拆第 $3$ 間
+（$4$）。}
+\label{fig:ivdp-demolish}
+\end{center}
+
+計算順序仍然是長度由短到長：$[l, k - 1]$ 和 $[k + 1, r]$ 都比 $[l, r]$ 短。
+
+同樣的模型也出現在別的地方：一條生產線上相連的機台要逐台停機保養，停一台會
+影響同一段還在運轉的機台；一根木料要在指定的位置鋸開，每一刀的成本和當下那
+段木料的長度有關。 只要「第一個動作把一段切成兩段、兩段從此無關」，就可以
+枚舉第一個動作的位置。
+
+\textbf{程式}
+
+\begin{example}[label=ex:ivdp-demolish]{cpp}{(demolition.cpp) 拆除一排相連的攤位}
+#include <climits>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+    vector<int> a(n + 2, 0);
+    for (int i = 1; i <= n; i++) {
+        cin >> a[i];
+    }
+    // dp[l][r]：第 l 到第 r 間是一個完整的區塊時，把它拆完的最小花費
+    // l > r 表示空的區塊，花費 0。開 n + 2 列，dp[l][l - 1]、dp[r + 1][r] 都在表內
+    vector<vector<int>> dp(n + 2, vector<int>(n + 2, 0));
+    for (int len = 1; len <= n; len++) {
+        for (int l = 1; l + len - 1 <= n; l++) {
+            int r = l + len - 1;
+            int best = INT_MAX;
+            for (int k = l; k <= r; k++) {    // 這個區塊第一個拆第 k 間
+                int cost = a[k] * len + dp[l][k - 1] + dp[k + 1][r];
+                best = min(best, cost);
+            }
+            dp[l][r] = best;
+        }
+    }
+    cout << dp[1][n] << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 \\
+3 1 4 2 \\
+}{
+15 \\
+}
+
+\begin{itemize}
+\item 表格開 $n + 2$ 列、$n + 2$ 行。 $k = r = n$ 時會讀 \texttt{dp[n + 1][n]}，
+$k = l = 1$ 時會讀 \texttt{dp[1][0]}，這些空區塊的格子都在表內，而且開表時就
+是 $0$。 空區間是區間 DP 最常越界的地方，多開一圈最省事。
+\item 這題長度從 $1$ 開始，因為一間的區塊也要花錢。
+\item 答案最大大約是 $150$ 間 $\times$ 每間最多 $1000 \times 150$，約
+$2.3 \times 10^7$，\texttt{int} 裝得下。 動手前先估一次，就知道要不要用
+\texttt{long long}。
+\end{itemize}
+
+\textbf{複雜度}
+
+最內層執行 $\sum_{len=1}^{n} (n - len + 1) \cdot len = n(n + 1)(n + 2)/6$ 次，
+$n = 150$ 時是 $573800$ 次。 最大的測試資料在本書測試的環境下約 $0.01$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{用貪心}：每次先拆係數最小的，輸入 \texttt{4}、\texttt{1 2 3 4}
+印出 \texttt{20}，正確答案是 $19$；每次先拆係數最大的，範例的輸入印出
+\texttt{25}。 兩條規則都只看係數，沒有考慮拆的位置會怎麼切開區塊。
+\item \textbf{區塊長度用整排的 $n$}：把 \texttt{a[k] * len} 寫成
+\texttt{a[k] * n}，範例的輸入印出 \texttt{40}（每間都乘 $4$）。 斷開的兩段
+不會接回去，拆的時候看的是當下所在區塊的長度。
+\item \textbf{計算順序錯}：外兩層改成 $l$、$r$ 都由小到大，範例的輸入印出
+\texttt{7}。 算 $\mathrm{dp}(1, 4)$ 時 \texttt{dp[3][4]}、\texttt{dp[2][4]}
+都還是 $0$。
+\item \textbf{表格開太小}：開成 $n + 1$ 列，\texttt{dp[n + 1][n]} 就在表外。
+在本書測試的環境下，範例的輸入直接當掉（segmentation fault）；加上
+\texttt{-fsanitize=address} 編譯，會指出讀到了陣列外面。 這是未定義行為，換
+一台機器或換一組輸入，也可能不當掉、印出奇怪的數字。
+\end{itemize}
+
+\section{括號型：最左邊的和誰一組}
+\label{sec:ivdp-pair}
+
+有一類題目，最後的結果是「每個東西和另一個東西配成一對」，而且配對像括號一樣
+不交叉：$($ 和 $)$ 可以一層包一層，也可以並排，但不會出現 $( [ ) ]$ 這種
+交錯。 這類題目的轉移看區間最左邊的那一個：它和誰配成一對，那一對就把區間分
+成「被包在裡面的」和「在右邊的」兩段。
+
+\subsection{例題：兩兩相鄰離隊搭車}
+\label{sec:ex-ivdp-pairs}
+
+\textbf{題意}（\akiref{leaving-the-line-in-pairs}{兩兩相鄰離隊搭車}）
+
+\begin{itemize}
+\item $n$ 位同學排成一排（$n$ 是偶數），第 $i$ 位的身高是 $h_i$。
+\item 每次從目前的隊伍裡叫兩位\textbf{相鄰}的同學一起離隊，這一車的不協調
+度是 $|h_i - h_j|$。 兩人離開後隊伍往中間靠攏，原本在他們兩邊的人變成相鄰。
+\item 重複到所有人都離隊，求不協調度總和的最小值。 $n \le 400$，
+$h_i \le 10^9$。
+\end{itemize}
+
+例如身高 $3, 8, 2, 2, 9, 4$：先叫中間兩位 $2$（差 $0$），隊伍變成
+$3, 8, 9, 4$；再叫 $8$ 和 $9$（差 $1$）；最後 $3$ 和 $4$（差 $1$），總和 $2$。
+
+\textbf{想法}
+
+最直接的是模擬每一種叫人的順序：一開始有 $n - 1$ 對相鄰的可以叫，之後
+$n - 3$ 對……全部乘起來，$n = 20$ 時已經超過 $6 \times 10^8$ 種，只能拿來在
+很小的 $n$ 對拍。 「每次叫目前身高差最小的相鄰兩人」也會錯：身高
+$1, 5, 6, 10$ 時先叫 $5$ 和 $6$（差 $1$），剩下 $1$ 和 $10$ 只能一起走（差
+$9$），總和 $10$；先叫 $1, 5$ 再叫 $6, 10$ 只要 $8$。
+
+\textbf{順序不重要，重要的是誰和誰一組。} 總和只看最後的配對，和叫人的順序
+無關。 那麼哪些配對做得到？ 把每一對畫成一條弧，連起兩人原本的位置：
+
+\begin{center}
+\begin{tikzpicture}[x=1cm, y=1cm]
+\foreach \v [count=\i] in {3,8,2,2,9,4} {
+  \node[cell] (p\i) at (\i,0) {\v};
+  \node[idxlbl] at (\i,-0.7) {\i};
+}
+\draw[thick, memStroke] (p1.north) to[out=70, in=110] (p6.north);
+\draw[thick, coreStroke] (p2.north) to[out=70, in=110] (p5.north);
+\draw[thick, optStroke] (p3.north) to[out=70, in=110] (p4.north);
+\node[font=\small] at (8.6,0.9) {$(\,(\,(\,)\,)\,)$};
+\node[font=\small] at (8.6,0.3) {左端寫 (，右端寫 )};
+\end{tikzpicture}
+\diagcaption{範例的配對：$(1, 6)$、$(2, 5)$、$(3, 4)$。 三條弧一層包一層，
+寫成括號就是 \texttt{((()))}。}
+\label{fig:ivdp-arcs}
+\end{center}
+
+兩條弧不會交叉。 假設 $i < p < j < q$，$i$ 和 $j$ 一組、$p$ 和 $q$ 一組。 $i$、
+$j$ 離隊時兩人必須相鄰，夾在中間的 $p$ 已經先走了；$p$、$q$ 離隊時，夾在中
+間的 $j$ 也已經先走了。 兩組都比對方先走，不可能。 反過來，任何不交叉的配
+對都做得到：最內層的那一對中間沒有人，先叫它們；拿掉之後，剩下的配對仍然不
+交叉，又有新的最內層。 所以問題變成：在所有\textbf{不交叉}的配對裡，找總差距
+最小的那一種。
+
+\textbf{看最左邊的人。} 區間 $[l, r]$ 裡，第 $l$ 位和第 $k$ 位一組。 弧不交
+叉，所以：
+
+\begin{itemize}
+\item 夾在中間的 $[l + 1, k - 1]$ 只能彼此配對，這一段的人數必須是偶數，也就
+是 $k - l$ 是奇數。
+\item 右邊的 $[k + 1, r]$ 也只能彼此配對，各自獨立。
+\end{itemize}
+
+\begin{center}
+\fbox{\parbox{0.86\linewidth}{\centering
+$\mathrm{dp}(l, r)$：第 $l$ 到第 $r$ 位（偶數個人）全部配成不交叉的對，差距總和的最小值。}}
+\end{center}
+
+\[
+\mathrm{dp}(l, r) = \min_{k = l + 1,\, l + 3,\, \ldots,\, r} \bigl(|h_l - h_k| + \mathrm{dp}(l + 1, k - 1) + \mathrm{dp}(k + 1, r)\bigr),
+\]
+空區間是 $0$，只有偶數長度的區間有意義。 這和括號字串的題目是同一個形狀：最
+左邊的「(」配到哪一個「)」，就把字串分成括號裡面和括號右邊兩段。
+
+同樣的模型也出現在別的地方：一排待焊接的接點要兩兩用導線連起來，導線不能交
+叉；一條 RNA 的鹼基兩兩配對，配對不能交錯。 看到「兩兩配對、不交叉」，就可
+以看最左邊的那一個和誰一組。
+
+\textbf{程式}
+
+\begin{example}[label=ex:ivdp-pairs]{cpp}{(pairs.cpp) 兩兩相鄰離隊搭車}
+#include <climits>
+#include <cstdlib>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+    vector<long long> h(n + 2, 0);
+    for (int i = 1; i <= n; i++) {
+        cin >> h[i];
+    }
+    // dp[l][r]：第 l 到第 r 位（偶數個人）全部離隊的最小總和；l > r 時是 0
+    vector<vector<long long>> dp(n + 2, vector<long long>(n + 2, 0));
+    for (int len = 2; len <= n; len += 2) {   // 只有偶數長度有意義
+        for (int l = 1; l + len - 1 <= n; l++) {
+            int r = l + len - 1;
+            long long best = LLONG_MAX;
+            for (int k = l + 1; k <= r; k += 2) {   // l 的搭檔是 k
+                long long cost = llabs(h[l] - h[k]) + dp[l + 1][k - 1] + dp[k + 1][r];
+                best = min(best, cost);
+            }
+            dp[l][r] = best;
+        }
+    }
+    cout << dp[1][n] << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+6 \\
+3 8 2 2 9 4 \\
+}{
+2 \\
+}
+
+\begin{itemize}
+\item \texttt{len += 2} 只算偶數長度；\texttt{k += 2} 讓 $k - l$ 保持奇數。
+奇數長度的格子從來沒有被填過，也從來不會被讀到。
+\item $k = l + 1$ 時中間是空的 \texttt{dp[l + 1][l]}；$k = r$ 時右邊是空的
+\texttt{dp[r + 1][r]}。 和上一題一樣，表格多開一圈。
+\item 身高到 $10^9$，一對的差距最大約 $10^9$，$200$ 對加起來約
+$2 \times 10^{11}$，要用 \texttt{long long}。 \texttt{llabs} 是
+\texttt{long long} 版的絕對值，在 \texttt{<cstdlib>}。
+\end{itemize}
+
+\textbf{複雜度}
+
+偶數長度的區間大約 $n^2/4$ 個，每個試大約 $len/2$ 個搭檔，最內層大約執行
+$n^3/24$ 次，$n = 400$ 時約 $2.7 \times 10^6$ 次。 最大的測試資料在本書測試
+的環境下約 $0.02$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{每次叫差距最小的}：輸入 \texttt{4}、\texttt{1 5 6 10} 印出
+\texttt{10}，正確答案是 $8$。
+\item \textbf{只配原本就相鄰的}：只考慮 $(1, 2), (3, 4), \ldots$ 這種配法，範例
+的輸入得到 $|3 - 8| + |2 - 2| + |9 - 4| = 10$。 漏掉了一層包一層的配對。
+\item \textbf{沒有限制搭檔的奇偶}：把 \texttt{k += 2} 寫成 \texttt{k++}，範例
+的輸入印出 \texttt{1}。 $k - l$ 是偶數時，夾在中間的是奇數個人，配不完；程式
+卻去讀奇數長度的格子，那些格子從沒填過，還是 $0$，等於假裝那一段的人不用
+花任何代價就走光了。
+\item \textbf{總和用 \texttt{int}}：輸入 $n = 400$，身高 $1$ 和 $10^9$ 交錯，
+正確答案是 \texttt{199999999800}。 把 \texttt{long long} 都改成
+\texttt{int}，在本書測試的環境下印出 \texttt{-1863463112}。
+\end{itemize}
+
+\section{回文：從兩端往內縮}
+\label{sec:ivdp-pal}
+
+正著讀和倒著讀都一樣的字串叫\textbf{回文}（palindrome），例如
+\texttt{abba}、\texttt{level}。 回文的定義本身就是區間的形狀：一段字串是回
+文，剛好是在「兩端的字元相同，而且拿掉兩端之後中間那段也是回文」的時候。 這
+一節的轉移都只看兩端，每個狀態 $O(1)$，所以 $n$ 可以到幾千。
+
+\subsection{哪些區間是回文}
+
+先建一張表，記下每一段是不是回文：
+
+\begin{center}
+\fbox{\parbox{0.86\linewidth}{\centering
+$\mathrm{pal}(l, r)$：$s[l..r]$ 是不是回文。}}
+\end{center}
+
+長度 $1$ 一定是；長度 $2$ 看兩個字元是否相同；長度至少 $3$ 時，
+$\mathrm{pal}(l, r)$ 是「$s[l] = s[r]$ 而且 $\mathrm{pal}(l + 1, r - 1)$」。
+$[l + 1, r - 1]$ 比 $[l, r]$ 短，所以仍然依長度由短到長填：
+
+\begin{code}{cpp}{回文表}
+// pal[l][r]：s[l..r] 是不是回文（0 起算）
+vector<vector<char>> pal(n, vector<char>(n, 0));
+for (int len = 1; len <= n; len++) {
+    for (int l = 0; l + len - 1 < n; l++) {
+        int r = l + len - 1;
+        pal[l][r] = (s[l] == s[r]) && (len <= 2 || pal[l + 1][r - 1]);
+    }
+}
+\end{code}
+
+表格用 \texttt{char} 存 $0$ 和 $1$，每格一個位元組，$n = 3000$ 時約 $9$ MB。
+建好之後，「$s$ 的某一段是不是回文」只要查一格。 很多題目先建這張表，再接別
+的 DP：例如要把字串切成好幾段、每段都是回文，就是第 1 本第~9~章「前 $i$ 個切成好幾
+段」的狀態，轉移時用這張表檢查最後一段。
+
+另一種常見的題目是\textbf{最長回文子序列}：從字串裡刪掉一些字元（剩下的順序
+不變），最長能留下多長的回文。 狀態是 $s[l..r]$ 裡最長的回文子序列，看兩端：
+相同就兩個都留下、加上中間的答案；不同就至少要丟掉一端。 本章練習第~4~題會
+手算一次。
+
+\subsection{例題：拆旗換色排回文}
+\label{sec:ex-ivdp-flags}
+
+\textbf{題意}（\akiref{flags-take-down-or-recolor}{拆旗換色排回文}）
+
+\begin{itemize}
+\item 一排 $n$ 面彩旗，顏色寫成字串 $s$。 要讓整排從左看和從右看的顏色順序
+相同（回文），不能加掛新的旗子。
+\item 拆掉第 $i$ 面旗花 $w_i$ 秒，拆下後兩旁的旗子靠攏；把任一面旗換成任意顏
+色，每次花 $C$ 秒。 只剩一面旗也算回文。
+\item 求最少要花幾秒。 $n \le 2000$，$C$ 和 $w_i$ 都到 $10^9$。
+\end{itemize}
+
+例如 $C = 3$、旗子 \texttt{rgbyr}、拆旗秒數 $2, 4, 1, 5, 6$：兩端都是
+\texttt{r}；第 $2$ 面 \texttt{g} 和第 $4$ 面 \texttt{y} 對不上，把第 $4$ 面換
+成 \texttt{g}，花 $3$ 秒，得到 \texttt{rgbgr}。 只拆不換的話，至少要拆
+\texttt{g} 和 \texttt{b}（$4 + 1 = 5$ 秒）或其他組合，都比 $3$ 秒慢。
+
+\textbf{想法}
+
+最直接的做法是枚舉留下哪些旗子，有 $2^n$ 種；對每一種，留下的旗子從兩端往內
+兩兩配對，對不上的那一對換一次色。 $n = 2000$ 不可能，但 $n \le 15$ 時可以當
+對拍用的暴力解。
+
+\textbf{看最外面的兩面旗。} 只考慮第 $l$ 到第 $r$ 面這一段，它的處理方式只有
+三種：
+
+\begin{itemize}
+\item 拆掉第 $l$ 面：花 $w_l$，剩下 $[l + 1, r]$ 要修成回文。
+\item 拆掉第 $r$ 面：花 $w_r$，剩下 $[l, r - 1]$ 要修成回文。
+\item 兩面都留下：它們是修好之後的頭和尾，顏色必須相同。 顏色本來就一樣不用
+花錢，不一樣就把其中一面換色，花 $C$。 中間的 $[l + 1, r - 1]$ 再自己修成回
+文。
+\end{itemize}
+
+這三種涵蓋了所有可能：左端不是被拆掉、就是留下；右端也一樣；兩端都留下時，
+它們就是最後那串回文的第一面和最後一面。 每一種都留下一段連續的區間：
+
+\begin{center}
+\fbox{\parbox{0.86\linewidth}{\centering
+$f(l, r)$：只看第 $l$ 到第 $r$ 面旗時，把它修成回文的最少秒數。}}
+\end{center}
+
+\[
+f(l, r) = \min\bigl(w_l + f(l + 1, r),\ \ w_r + f(l, r - 1),\ \ f(l + 1, r - 1) + [s_l \ne s_r] \cdot C\bigr),
+\]
+其中 $[s_l \ne s_r]$ 在兩端顏色不同時是 $1$，相同時是 $0$。 長度 $0$ 或
+$1$ 的區間已經是回文，$f = 0$。
+
+\textbf{兩端顏色相同時，也要比三種。} 單看「兩端同色就直接配對」很合理，但拆
+旗的秒數每面不同。 看 $C = 6$、旗子 \texttt{rrgr}、拆旗秒數 $1, 4, 5, 3$：
+兩端都是 \texttt{r}，配成一對之後中間剩 \texttt{rg}，最便宜也要 $4$ 秒（拆掉
+第 $2$ 面）。 改成拆掉第 $1$ 面（$1$ 秒），剩下的 \texttt{rgr} 已經是回文，
+總共只要 $1$ 秒。 下表是這組輸入填完的 $f$（從 $0$ 起算）：
+
+\begin{center}
+\begin{tabular}{cc|cccc}
+\toprule
+ & & \multicolumn{4}{c}{$r$} \\
+ & & 0 \texttt{r} & 1 \texttt{r} & 2 \texttt{g} & 3 \texttt{r} \\
+\midrule
+\multirow{4}{*}{$l$} & 0 \texttt{r} & 0 & 0 & 5 & \textbf{1} \\
+ & 1 \texttt{r} & & 0 & 4 & 0 \\
+ & 2 \texttt{g} & & & 0 & 3 \\
+ & 3 \texttt{r} & & & & 0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+$f(0, 3)$ 的三種選擇：拆左端 $1 + f(1, 3) = 1 + 0 = 1$；拆右端
+$3 + f(0, 2) = 3 + 5 = 8$；兩端配對 $f(1, 2) + 0 = 4$。 最小的是 $1$。
+
+同樣的模型也出現在別的地方：把一段對稱的圖案、一組左右對稱的座位安排「修」成
+對稱，每個位置的移除成本不同；或者比較一段 DNA 和它的反向序列。
+
+\textbf{程式}
+
+\begin{example}[label=ex:ivdp-flags]{cpp}{(flags.cpp) 拆旗換色排回文}
+#include <algorithm>
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n;
+    long long c;
+    string s;
+    cin >> n >> c >> s;
+    vector<long long> w(n);
+    for (long long &x : w) {
+        cin >> x;
+    }
+    // f[l][r]：只留下 s[l..r] 這一段時，把它修成回文的最少秒數
+    // 長度 0 或 1 已經是回文，f 是 0
+    vector<vector<long long>> f(n, vector<long long>(n, 0));
+    for (int len = 2; len <= n; len++) {
+        for (int l = 0; l + len - 1 < n; l++) {
+            int r = l + len - 1;
+            long long inner = (len == 2) ? 0 : f[l + 1][r - 1];
+            long long pairUp = inner + (s[l] == s[r] ? 0 : c);   // 兩端配成一對
+            long long dropL = w[l] + f[l + 1][r];                 // 拆掉左端
+            long long dropR = w[r] + f[l][r - 1];                 // 拆掉右端
+            f[l][r] = min({pairUp, dropL, dropR});
+        }
+    }
+    cout << f[0][n - 1] << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 6 \\
+rrgr \\
+1 4 5 3 \\
+}{
+1 \\
+}
+
+\begin{itemize}
+\item 這題的字串從 $0$ 起算，表格開 $n \times n$。 長度 $2$ 時中間是空的，
+\texttt{f[l + 1][r - 1]} 會變成 \texttt{f[l + 1][l]}，左下半部的格子；它開表
+時是 $0$，讀到也沒錯，但程式直接用 \texttt{len == 2} 判斷，意思比較清楚。
+\item \texttt{min(\{a, b, c\})} 用大括號一次比三個數，第 1 本第~10~章用過，需要
+\texttt{<algorithm>}。
+\item 拆旗秒數到 $10^9$、最多 $2000$ 面，答案可能到 $10^{12}$ 左右，用
+\texttt{long long}。
+\end{itemize}
+
+\textbf{複雜度}
+
+狀態約 $n^2/2 = 2 \times 10^6$ 個，每個只比三種，時間 $O(n^2)$。 表格是
+$2000 \times 2000$ 個 \texttt{long long}，$32$ MB。 最大的測試資料在本書測試
+的環境下約 $0.06$ 秒。 這題的每一格只用到下一列和同一列，也可以像第 1 本第~10~章
+一樣只留兩列，但 $32$ MB 離常見的限制還很遠，整張表比較好寫、好檢查。
+
+\begin{apcsnote}
+區間 DP 的狀態、轉移寫對了，最常錯的是計算順序和邊界（空區間、長度 $1$、長
+度 $2$）。 寫完之後，用 $n = 1, 2, 3$ 的輸入各跑一次，再拿範例裡的小例子手
+算幾格表格對照；這幾組小輸入幾乎能抓出所有順序和邊界的錯。
+\end{apcsnote}
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{兩端同色就直接配對}：寫成「$s_l = s_r$ 時 $f(l, r) = f(l + 1, r - 1)$，
+不再比較拆旗」。 範例的輸入印出 \texttt{4}，正確答案是 $1$。 每面旗的拆除
+成本一樣時這個直覺是對的，加權之後就不一定。
+\item \textbf{從兩端往內一對一對比}：用兩個指標從兩端往中間走，對不上的那一對
+付 $C$ 或拆掉便宜的那面。 拆掉一面之後，後面所有的配對都會錯開一格，指標
+法沒辦法處理。 範例的輸入兩端已經對上、中間 \texttt{rg} 付 $4$，同樣印出
+\texttt{4}。
+\item \textbf{忘了換色}：只寫拆旗的兩種轉移，兩端不同色時不考慮配對。 題目一
+開始的例子 \texttt{rgbyr} 會印出 \texttt{5}，正確答案是 $3$。
+\item \textbf{用 \texttt{int}}：拆旗秒數和 $C$ 都到 $10^9$，兩面就超過
+\texttt{int} 的上限。
+\end{itemize}
+
+\section{環狀：把陣列接一倍}
+\label{sec:ivdp-ring}
+
+章首的作業簿如果放在一張圓桌上，第 $n$ 疊和第 $1$ 疊也相鄰，可以合併。 例如
+圓桌上依序是 $2, 8, 3, 8, 2$ 本，排成一排時最少要 $56$；在圓桌上，頭尾兩疊
+$2$ 和 $2$ 可以先合在一起，最少只要 $50$。 區間 DP 的狀態是一段，圓上的「一
+段」要怎麼表示？
+
+\textbf{一定有一個地方沒被跨過。} $n$ 疊排成一圈，相鄰兩疊之間有一個縫，一
+共 $n$ 個縫。 每次合併讓一個縫消失（兩疊變成一疊），合成一疊要合併 $n - 1$ 次，
+所以到最後剛好有一個縫\textbf{從來沒有被合併跨過}。 從那個縫剪開，圓就變成
+一排，那一排用前面的區間 DP 算。
+
+\begin{center}
+\begin{tikzpicture}[x=1cm, y=1cm]
+\begin{scope}
+\foreach \v [count=\i] in {2,8,3,8,2} {
+  \node[cell] (q\i) at ({90 - 72*(\i-1)}:1.45) {\v};
+}
+\draw[very thick, memStroke] ({90 - 72*1.5}:0.7) -- ({90 - 72*1.5}:2.2);
+\node[font=\small] at (0,-2.3) {從第 $2$、$3$ 疊之間剪開};
+\end{scope}
+\begin{scope}[xshift=3.6cm]
+\foreach \v [count=\i] in {2,8,3,8,2,2,8,3,8,2} {
+  \node[cell, minimum width=0.7cm, minimum height=0.7cm] (d\i) at (0.75*\i,0) {\v};
+  \node[idxlbl] at (0.75*\i,0.6) {\i};
+}
+\foreach \i in {6,...,10} {\node[cell, minimum width=0.7cm, minimum height=0.7cm, fill=black!6] at (0.75*\i,0) {};}
+\foreach \i/\v in {6/2,7/8,8/3,9/8,10/2} {\node[font=\ttfamily] at (0.75*\i,0) {\v};}
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, draw=memStroke]
+  (0.75*3-0.35,-0.5) -- (0.75*7+0.35,-0.5) node[midway, below=6pt, font=\small] {第 $3$ 到第 $7$ 疊};
+\node[font=\small] at (4.1,-1.9) {接一倍之後，任何剪法都是長度 $5$ 的一段};
+\end{scope}
+\end{tikzpicture}
+\diagcaption{左：圓桌上的五疊，從第 $2$、$3$ 疊之間剪開，得到 $3, 8, 2, 2, 8$。
+右：把陣列接一倍（灰色是複製的部分），這一排剛好是第 $3$ 到第 $7$ 疊。}
+\label{fig:ivdp-ring}
+\end{center}
+
+不知道是哪一個縫，就每個縫都試。 從第 $l$ 疊前面剪開，得到的一排是第
+$l, l + 1, \ldots, n, 1, \ldots, l - 1$ 疊。 五種剪法的結果：
+
+\begin{center}
+\begin{tabular}{clc}
+\toprule
+從哪一疊開始 & 剪開後的一排 & 排成一排的最少力氣 \\
+\midrule
+$1$ & $2, 8, 3, 8, 2$ & $56$ \\
+$2$ & $8, 3, 8, 2, 2$ & $50$ \\
+$3$ & $3, 8, 2, 2, 8$ & $50$ \\
+$4$ & $8, 2, 2, 8, 3$ & $50$ \\
+$5$ & $2, 2, 8, 3, 8$ & $50$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+圓桌的答案是其中最小的 $50$。 每一種剪法各做一次 $O(n^3)$，總共 $O(n^4)$，
+太慢。 注意到這些排法都是同一個圈的不同起點：把陣列\textbf{接一倍}，寫成
+$a_1, \ldots, a_n, a_1, \ldots, a_n$，那麼「從第 $l$ 疊開始剪開」的那一排，
+就是新陣列的第 $l$ 到第 $l + n - 1$ 個。 在長度 $2n$ 的陣列上做一次區間
+DP，只算長度不超過 $n$ 的區間，所有剪法的答案都在表裡：
+\[
+\text{圓桌的答案} = \min_{1 \le l \le n} \mathrm{dp}(l,\ l + n - 1).
+\]
+不同的剪法共用了大部分的區間，例如 $[3, 5]$ 同時出現在第 $1$、$2$、$3$ 種剪
+法裡，只算一次。
+
+\begin{example}[label=ex:ivdp-ring]{cpp}{(ring.cpp) 圓桌上合併作業簿}
+#include <climits>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+    vector<long long> a(2 * n + 1, 0);
+    for (int i = 1; i <= n; i++) {
+        cin >> a[i];
+        a[i + n] = a[i];                       // 接一倍：第 n + i 疊就是第 i 疊
+    }
+    vector<long long> pre(2 * n + 1, 0);
+    for (int i = 1; i <= 2 * n; i++) {
+        pre[i] = pre[i - 1] + a[i];
+    }
+    vector<vector<long long>> dp(2 * n + 1, vector<long long>(2 * n + 1, 0));
+    for (int len = 2; len <= n; len++) {       // 長度只要算到 n
+        for (int l = 1; l + len - 1 <= 2 * n; l++) {
+            int r = l + len - 1;
+            long long best = LLONG_MAX;
+            for (int k = l; k < r; k++) {
+                best = min(best, dp[l][k] + dp[k + 1][r]);
+            }
+            dp[l][r] = best + (pre[r] - pre[l - 1]);
+        }
+    }
+    long long ans = LLONG_MAX;
+    for (int l = 1; l <= n; l++) {             // 從第 l 疊開始、長度 n 的一段
+        ans = min(ans, dp[l][l + n - 1]);
+    }
+    cout << ans << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+5 \\
+2 8 3 8 2 \\
+}{
+50 \\
+}
+
+\begin{itemize}
+\item 和範例~\ref{ex:ivdp-merge} 比，只改了三處：陣列和表格開 $2n + 1$；長
+度只算到 $n$，但左端走遍整個長度 $2n$ 的陣列；答案取 $n$ 個長度 $n$ 的區間裡
+最小的。
+\item 長度超過 $n$ 的區間會把同一疊算兩次，沒有意義，所以不算。
+\item 狀態約 $2n \times n$ 個，比一排時多一倍左右，複雜度仍然是 $O(n^3)$，
+大約是一排時的四倍。
+\end{itemize}
+
+這個做法不限於合併。 只要是「排成一圈，最後的結構一定有一個地方沒被跨過」
+的區間 DP，例如圓桌旁的人兩兩配對、凸多邊形的切割，都可以接一倍，再取所有長
+度 $n$ 的區間的最佳值。 一圈的題目想不到該從哪裡剪時，先問自己：最後的結
+果裡，有沒有一個一定沒被用到的縫？
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{忘了是一圈}：直接用範例~\ref{ex:ivdp-merge}，範例的輸入印出
+\texttt{56}，正確答案是 $50$。 範例裡最好的剪法不在原本的頭尾之間時，就會
+出錯。
+\item \textbf{答案取 \texttt{dp[1][2n]}}：那是把接一倍之後的 $2n$ 疊全部合
+成一疊，每一疊都算了兩次，不是題目要的。 長度 $n$ 的區間才對應一種剪法。
+\item \textbf{陣列只開 $n$}：讀第 $n + 1$ 到 $2n$ 疊時超出陣列。 接一倍的時
+候，前綴和、表格都要跟著開兩倍。
+\end{itemize}
+
+\section{什麼時候用區間 DP}
+\label{sec:ivdp-when}
+
+這一章的四個問題，轉移有三種形狀：
+
+\begin{center}
+\begin{tabular}{p{0.2\linewidth}p{0.4\linewidth}p{0.3\linewidth}}
+\toprule
+形狀 & 轉移在看什麼 & 本章的例子 \\
+\midrule
+切點 & 最後一次合併的分界，或第一個動作的位置；切開後左右兩段獨立 & 作業簿、拆攤位 \\
+配對 & 最左邊的那一個和誰一組；把區間分成裡面和右邊 & 兩兩離隊 \\
+兩端 & 最外面兩個怎麼處理：拆左、拆右、或兩端配對 & 回文表、拆旗換色 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+適合想到區間 DP 的訊號：
+
+\begin{itemize}
+\item 題目的操作只發生在\textbf{相鄰}的東西之間（合併相鄰兩堆、拿掉一個後兩邊
+靠攏），或答案和回文、括號、不交叉的配對有關。
+\item 拆一次之後，剩下的是一段或兩段\textbf{連續}的區間，而且彼此獨立。
+\item $n$ 在幾百以內（每個狀態枚舉切點）或一兩千（每個狀態只看兩端）。
+\end{itemize}
+
+看起來像、其實不是的情況：
+
+\begin{itemize}
+\item \textbf{子問題永遠是前綴。} 例如只能從左邊一個一個拿，那是第 1 本第~9~章的
+一維狀態，用區間反而多一個維度。
+\item \textbf{任意兩堆都可以合併。} 把作業簿換成「桌上任兩疊都能搬在一起」，
+就不再有「連續一段」的限制。 這時「每次合併最少的兩疊」反而是對的，用第 1 本第~6~章
+的優先佇列每次取出最小的兩疊即可，$O(n \log n)$。 章首的貪心錯，是因為「相
+鄰」這個限制；限制拿掉，貪心就對了。
+\item \textbf{挑出來的東西不必連續。} 從一堆物品挑一些、總重不超過限制，那是
+第~1~章的背包，狀態是「前 $i$ 件、用了多少重量」，不是區間。
+\end{itemize}
+
+\section{本章常見錯誤}
+\label{sec:ivdp-pitfalls}
+
+各節的錯誤，歸納起來是四類。 寫區間 DP 時，交出去之前逐項檢查。
+
+\begin{center}
+\begin{tabular}{p{0.2\linewidth}p{0.46\linewidth}p{0.22\linewidth}}
+\toprule
+錯誤 & 例子 & 見 \\
+\midrule
+計算順序 & $l$、$r$ 都由小到大，讀到還沒填的格子（印出 $24$、$7$） &
+第~\ref{sec:ivdp-order}、\ref{sec:ex-ivdp-demolish}~節 \\
+邊界 & 空區間 \texttt{dp[r + 1][r]} 越界；長度 $2$ 的中間；奇數長度的格子被當成
+$0$ & 第~\ref{sec:ex-ivdp-demolish}、\ref{sec:ex-ivdp-pairs}、\ref{sec:ex-ivdp-flags}~節 \\
+轉移漏了選擇 & 用貪心；只配原本相鄰的；兩端同色就直接配對；忘了換色 &
+第~\ref{sec:ex-ivdp-demolish}、\ref{sec:ex-ivdp-pairs}、\ref{sec:ex-ivdp-flags}~節 \\
+這一步的花費 & 忘了加總本數；區塊長度用整排的 $n$ & 第~\ref{sec:ivdp-basic}、\ref{sec:ex-ivdp-demolish}~節 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+另外兩個每一題都可能碰到的錯誤：總和超過 \texttt{int}，以及環狀的題目忘了接
+一倍。 前者在動手前估答案最大多少；後者讀題時先確認頭尾是否相鄰。
+
+\section{本章練習}
+\label{sec:ivdp-exercises}
+
+\begin{drills}[label=drills:ivdp]
+\item 一排四疊作業簿是 $3, 1, 4, 2$ 本，規則和第~\ref{sec:ivdp-basic}~節相同。
+照長度由短到長，手算 $\mathrm{dp}(l, r)$ 的每一格，寫出最少的力氣，以及最後
+一次合併的分界 $k$。
+
+\item 下面四種迴圈順序，用來填範例~\ref{ex:ivdp-merge} 的表格，哪幾種是對的？
+錯的那幾種，範例的輸入會印出什麼？
+\begin{enumerate}
+\item 外層 \texttt{len} 由 $2$ 到 $n$，內層 \texttt{l} 由小到大。
+\item 外層 \texttt{l} 由 $n$ 到 $1$，內層 \texttt{r} 由 $l + 1$ 到 $n$。
+\item 外層 \texttt{l} 由 $1$ 到 $n$，內層 \texttt{r} 由 $l + 1$ 到 $n$。
+\item 外層 \texttt{r} 由 $1$ 到 $n$，內層 \texttt{l} 由 $r - 1$ 到 $1$。
+\end{enumerate}
+
+\item 估計下列次數。
+\begin{enumerate}
+\item 範例~\ref{ex:ivdp-merge} 在 $n = 10$ 時，\texttt{best = min(...)} 那一行
+執行幾次？
+\item 範例~\ref{ex:ivdp-demolish} 在 $n = 10$ 時，\texttt{int cost = ...} 那一行
+執行幾次？ 為什麼比 (a) 多？
+\item 範例~\ref{ex:ivdp-merge} 如果 $n = 3000$，最內層大約執行幾次？ 表格要幾
+MB？ 依第~\ref{sec:ivdp-cost}~節的實測，大約要跑多久？
+\end{enumerate}
+
+\item 字串 \texttt{bdacab} 的最長回文子序列。 設 $g(l, r)$ 是 $s[l..r]$ 裡最長
+的回文子序列長度。
+\begin{enumerate}
+\item 寫出 $g(l, r)$ 的轉移：$s_l = s_r$ 時和 $s_l \ne s_r$ 時各是什麼。 初始值
+是什麼？
+\item 手算出 $g(1, 6)$，並寫出一個達到這個長度的回文子序列。
+\end{enumerate}
+
+\item 有人想數字串裡有幾段連續的子字串是回文，寫了下面的程式片段。
+\begin{code}{cpp}{練習 5}
+int count = 0;
+for (int l = 0; l < n; l++) {
+    for (int r = l; r < n; r++) {
+        pal[l][r] = (s[l] == s[r]) && (r - l < 2 || pal[l + 1][r - 1]);
+        if (pal[l][r]) {
+            count++;
+        }
+    }
+}
+\end{code}
+\texttt{pal} 一開始全是 $0$。 輸入 \texttt{abba} 時它算出多少？ 正確答案是多
+少？ 錯在哪裡，怎麼改？
+
+\item 圓桌上的作業簿（第~\ref{sec:ivdp-ring}~節）。
+\begin{enumerate}
+\item 有人說：圓桌上的答案就是 $\mathrm{dp}(1, n)$，因為接一倍只是為了「讓第
+$n$ 疊和第 $1$ 疊相鄰」。 這樣對嗎？
+\item 為什麼「一定有一個縫從來沒被跨過」？ 如果題目改成每次可以合併\textbf{三
+疊}相鄰的作業簿（$n$ 是奇數），這個說法還成立嗎？
+\end{enumerate}
+\end{drills}
+
+\section{實作練習}
+\label{sec:ivdp-practice}
+
+下面是 Aki-Judge 上和本章相關的題目，依轉移的形狀分組，本章的三題例題也列在
+裡面。 難度分四階：暖身是直接套用本章的寫法；基本要自己定出狀態和轉移；實戰
+的題敘比較長，要先把題目轉換成本章的形狀；挑戰會和其他章的技巧合在一起。
+
+\begin{center}
+\begin{tabular}{llc}
+\toprule
+形狀 & 題目 & 難度 \\
+\midrule
+切點 & \akiref{demolishing-a-row-of-stalls}{拆除一排相連的攤位}（例題） & 暖身 \\
+\midrule
+配對 & \akiref{leaving-the-line-in-pairs}{兩兩相鄰離隊搭車}（例題） & 基本 \\
+\midrule
+兩端與回文 & \akiref{longest-palindrome-from-each-position}{從每個位置開始的最長回文} & 暖身 \\
+ & \akiref{flags-take-down-or-recolor}{拆旗換色排回文}（例題） & 基本 \\
+ & \akiref{squared-scores-for-palindromic-pieces}{回文切段的平方得分} & 實戰 \\
+\midrule
+區間加一點資訊 & \akiref{how-late-can-you-arrive}{最晚幾點到夜市} & 挑戰 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+例題讀完之後，可以先關上書自己寫一次，再上 Aki-Judge 提交。
+
+\section{讀完你應該會}
+\label{sec:ivdp-checklist}
+
+\begin{itemize}
+\item 拿到一個題目，能判斷拆一次之後剩下的是前綴還是中間的一段，決定要用第 1 本第~9~
+章的一維狀態還是區間狀態，並用一句中文寫出 $\mathrm{dp}(l, r)$ 的意思。
+\item 能用「長度由短到長」的三層迴圈填區間 DP 的表，並說得出 $l$、$r$ 都由小
+到大為什麼錯。
+\item 能從「最後一次合併」「第一個動作」「最左邊的和誰一組」「最外面兩個怎麼處
+理」中挑出合適的一種，寫出轉移，並處理空區間和奇偶。
+\item 能算出區間 DP 最內層的執行次數（例如 $(n^3 - n)/6$）和表格的記憶體，
+判斷給定的 $n$ 來不來得及。
+\item 遇到排成一圈的題目，能把陣列接一倍，取所有長度 $n$ 的區間的最佳值。
+\end{itemize}
+
+\textbf{延伸閱讀}（書末會整理完整的參考資料）
+
+\begin{itemize}
+\item Thomas H. Cormen 等，\textit{Introduction to Algorithms}，第 4 版，14.2
+節：矩陣連乘的順序，是枚舉切點最經典的例子，有完整的正確性說明。
+\item 劉汝佳，《算法競賽入門經典》第 2 版，9.4.1 節：矩陣連乘、多邊形切割、
+切木棍、括號序列幾種區間 DP，可以看同一個想法在不同題目上的樣子。
+\item 吳邦一，AP325，6.2.4 節：切棍子和矩陣乘法鏈，題目多，適合要準備 APCS 的
+人多練。
+\end{itemize}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item 長度 $2$：$\mathrm{dp}(1, 2) = 4$、$\mathrm{dp}(2, 3) = 5$、
+$\mathrm{dp}(3, 4) = 6$。 長度 $3$：$\mathrm{dp}(1, 3) = 8 + \min(0 + 5,\ 4 + 0) = 12$；
+$\mathrm{dp}(2, 4) = 7 + \min(0 + 6,\ 5 + 0) = 12$。 長度 $4$：
+$\mathrm{dp}(1, 4) = 10 + \min(0 + 12,\ 4 + 6,\ 12 + 0) = 20$，在 $k = 2$ 取到。
+也就是先合 $3 + 1$、再合 $4 + 2$，最後合成一疊：$4 + 6 + 10 = 20$。
+
+\item (a)、(b)、(d) 是對的，(c) 錯。
+\begin{itemize}
+\item (b)：算第 $l$ 列時，比它大的列（下面的列）都填完了，所以
+$\mathrm{dp}(k + 1, r)$ 已經有值；同一列左邊的 $\mathrm{dp}(l, k)$ 因為
+$r$ 由小到大，也先填了。
+\item (d)：算 $\mathrm{dp}(l, r)$ 時，$\mathrm{dp}(l, k)$ 的右端 $k < r$，在
+前面幾輪外層迴圈就填好了；$\mathrm{dp}(k + 1, r)$ 和它同一個 $r$、左端比較
+大，因為內層 $l$ 由大到小，也先填了。
+\item (c) 就是第~\ref{sec:ivdp-order}~節的錯誤，印出 \texttt{24}。
+\end{itemize}
+
+\item
+\begin{enumerate}
+\item $(n^3 - n)/6 = (1000 - 10)/6 = 165$ 次。
+\item $n(n + 1)(n + 2)/6 = 10 \cdot 11 \cdot 12 / 6 = 220$ 次。 拆攤位的長度從
+$1$ 開始，而且切點 $k$ 可以是 $l$ 到 $r$ 的每一個（$len$ 個），作業簿的切點只有
+$len - 1$ 個。
+\item 大約 $3000^3 / 6 = 4.5 \times 10^9$ 次。 表格 $3001 \times 3001$ 個
+\texttt{long long} 約 $72$ MB。 從 $n = 2000$ 約 $4$ 秒推算，時間和 $n^3$ 成
+正比，$1.5^3 \approx 3.4$ 倍，大約 $13$ 秒，來不及。
+\end{enumerate}
+
+\item
+\begin{enumerate}
+\item $s_l = s_r$ 時 $g(l, r) = g(l + 1, r - 1) + 2$；$s_l \ne s_r$ 時
+$g(l, r) = \max\bigl(g(l + 1, r),\ g(l, r - 1)\bigr)$。 初始值 $g(i, i) = 1$，
+空區間是 $0$（長度 $2$ 而兩字元相同時，中間是空的，得到 $2$）。
+\item $g(1, 6) = 5$。 $s_1 = s_6 = \texttt{b}$，所以 $g(1, 6) = g(2, 5) + 2$；
+$s_2 = \texttt{d}$、$s_5 = \texttt{a}$ 不同，$g(2, 5) = \max(g(3, 5), g(2, 4))$；
+$g(3, 5)$ 是 \texttt{aca}，等於 $3$。 所以 $g(1, 6) = 3 + 2 = 5$，回文子序列是
+\texttt{bacab}（刪掉 \texttt{d}）。
+\end{enumerate}
+
+\item 算出 $5$，正確答案是 $6$（\texttt{a}、\texttt{b}、\texttt{b}、\texttt{a}、
+\texttt{bb}、\texttt{abba}）。 外層 $l = 0$ 時要用 \texttt{pal[1][2]} 判斷
+\texttt{abba}，可是第 $1$ 列要到 $l = 1$ 才填，當時還是 $0$，所以
+\texttt{abba} 被當成不是回文。 長度 $1$、$2$ 不需要中間那格，所以這種錯只在
+長度至少 $3$ 的回文出現。 改成外層 \texttt{l} 由 $n - 1$ 到 $0$，或照本章用
+長度由短到長。
+
+\item
+\begin{enumerate}
+\item 不對。 $\mathrm{dp}(1, n)$ 是新陣列的第 $1$ 到 $n$ 個，也就是從第 $1$
+疊前面剪開的那一種，等於沒把它當成一圈，$2, 8, 3, 8, 2$ 會得到 $56$。 接一倍的
+用意是讓「從每一個縫剪開」都變成表裡的一段，所以要取 $n$ 個長度 $n$ 的區間
+裡最小的。
+\item 一圈有 $n$ 個縫，每次合併相鄰兩疊讓一個縫消失，總共合併 $n - 1$ 次，所
+以剩下一個縫從來沒被跨過。 每次合併三疊時，一次讓兩個縫消失，從 $n$ 疊合成
+一疊要合併 $(n - 1)/2$ 次，消失 $n - 1$ 個縫，仍然剩下一個，說法照樣成立：
+從那個縫剪開，同樣可以接一倍處理。
+\end{enumerate}
+\end{enumerate}

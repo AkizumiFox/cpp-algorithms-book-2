@@ -1,0 +1,1195 @@
+\chapter{背包 DP}
+\label{ch:knapsack}
+
+出國前一晚，手機只剩 $8$ GB 的空間。 想下載的東西有四樣：離線地圖 $2$ GB、
+一組播客 $3$ GB、一款遊戲 $4$ GB、一季影集 $5$ GB。 你替它們打了「想要的程度」，
+分別是 $3$、$4$、$5$、$7$ 分。 每一樣都只能整個下載，怎麼挑才能讓分數加起
+來最高？ 往下讀之前先自己挑一次。 再想一個問題：如果候選有一百樣、空間是
+$64$ GB，你挑的方法還用得上嗎？
+
+《C++ 演算法解題 1：APCS 實作題核心》（以下簡稱第 1 本）第~7~章 7.4 節試過「分數除以大小，比值大的先拿」。 這裡地圖的比值 $1.5$ 最
+高，影集 $1.4$ 第二，先下載這兩樣，用掉 $7$ GB、得到 $10$ 分，剩下的 $1$ GB
+什麼都放不下。 可是播客加影集剛好 $8$ GB，有 $11$ 分。 第 1 本第~9~章 9.7 節接著說
+明了只記「前 $i$ 樣的最佳值」不夠，還要記用掉多少空間，狀態變成兩維。 這一
+章把這件事做完。 這類「容量有限、每樣東西有大小和價值、挑一些放進去」的問題
+叫\textbf{背包問題}（knapsack problem）。
+
+第~\ref{sec:knap-01}~節先用兩維的表解最基本的 0/1 背包，第~\ref{sec:knap-1d}
+~節把表壓成一維，說清楚迴圈為什麼要倒著跑。 之後的幾節都是同一張表的小改
+動：改初始值，就能要求「剛好裝滿」並標出湊不出來的容量；改迴圈方向，每樣東西
+就能拿很多次；把取最大值換成加法，就能數方法數；把有數量上限的東西拆成幾包，
+就回到 0/1 背包。 最後一節整理幾種常見的變形。
+
+這一章用到第 1 本第~9~章的動態規劃四件事（狀態、轉移、初始值、計算順序）和第 1 本第~10~章
+10.3 節的滾動陣列，不再重講。 語法只用到 \texttt{vector}（包括
+\texttt{vector<vector<int>>} 的兩維表）、\texttt{long long} 和 \texttt{sort}
+加 lambda。 銜接書第~10~章的練習 3 寫過一維的 0/1 背包，當時只用一句話說明迴
+圈要由大到小，第~\ref{sec:knap-1d}~節會把理由講完整。
+
+\section{兩維的表}
+\label{sec:knap-01}
+
+先把問題寫清楚。 有 $n$ 件物品，第 $i$ 件的重量（大小）是 $w_i$、價值是
+$v_i$，背包最多裝重量 $W$。 每件物品只有一件，可以放或不放，求放進去的總價值
+最大是多少。 每件只有「放」和「不放」兩種，所以叫 \textbf{0/1 背包}（0/1
+knapsack）。 章首的手機就是 $n = 4$、$W = 8$，四件物品依序是 $(2, 3)$、
+$(3, 4)$、$(4, 5)$、$(5, 7)$，括號裡是（重量，價值）。
+
+最直接的做法是第 1 本第~4~章 4.2 節的子集合枚舉：每件放或不放，$n$ 件共 $2^n$ 種，
+每種算出總重量和總價值。 $n = 4$ 只有 $16$ 種，手算都行；$n = 100$ 時
+$2^{100}$ 種，永遠跑不完。 要像第 1 本第~9~章那樣，找出會重複出現的小問題。
+
+\subsection{狀態多記一維}
+
+照第 1 本第~9~章的四件事來設計。 一件一件決定，決定到第 $i$ 件時，之後還能放什麼，
+只取決於「已經用掉多少容量」，和前面挑了哪幾件無關。 所以狀態要有兩個數：
+看到第幾件，以及容量。
+
+\begin{itemize}
+\item \textbf{狀態}：$\mathrm{best}(i, c)$ ＝ 只考慮前 $i$ 件物品、總重量不超
+過 $c$ 時，能得到的最大總價值。
+\item \textbf{轉移}：看第 $i$ 件放不放。 不放，前 $i - 1$ 件仍然可以用滿 $c$
+的容量，得到 $\mathrm{best}(i - 1, c)$；放（需要 $c \ge w_i$），前 $i - 1$
+件只剩 $c - w_i$ 的容量，得到 $\mathrm{best}(i - 1, c - w_i) + v_i$。 兩者取
+大的。
+\item \textbf{初始值}：$\mathrm{best}(0, c) = 0$，一件都沒有時什麼都放不了，對
+每個 $c$ 都一樣。
+\item \textbf{計算順序}：第 $i$ 列只用到第 $i - 1$ 列，所以 $i$ 由小到大，一
+列一列填。 同一列裡的 $c$ 誰先誰後都可以。
+\end{itemize}
+
+答案是 $\mathrm{best}(n, W)$。 寫成式子：
+\[
+\mathrm{best}(i, c) = \max\bigl(\mathrm{best}(i - 1, c),\ \mathrm{best}(i - 1, c - w_i) + v_i\bigr),
+\quad \text{第二項只在 } c \ge w_i \text{ 時才有。}
+\]
+
+下圖是手機的例子填完的表。 第 $i$ 列的每一格，只看正上方和左上方某一格：正
+上方是不放第 $i$ 件，往左 $w_i$ 格的那一格是放。
+
+\begin{center}
+\begin{tikzpicture}[x=0.8cm, y=0.62cm,
+    t/.style={draw=black!45, minimum width=0.8cm, minimum height=0.62cm,
+              inner sep=0pt, font=\small\ttfamily},
+    src/.style={t, draw=coreStroke, thick, fill=coreFill},
+    dst/.style={t, draw=memStroke, very thick, fill=memFill}]
+\foreach \c in {0,...,8} { \node[font=\small] at (\c,0.9) {\c}; }
+\node[font=\small, left] at (-0.6,0.9) {$c$};
+\foreach \y/\lab in {0/{$i=0$},1/{地圖 (2,3)},2/{播客 (3,4)},3/{遊戲 (4,5)},5.2/{影集 (5,7)}} {
+    \node[font=\small, left] at (-0.6,-\y) {\lab};
+}
+\foreach \c/\v in {0/0,1/0,2/0,3/0,4/0,5/0,6/0,7/0,8/0} { \node[t] at (\c,0) {\v}; }
+\foreach \c/\v in {0/0,1/0,2/3,3/3,4/3,5/3,6/3,7/3,8/3} { \node[t] at (\c,-1) {\v}; }
+\foreach \c/\v in {0/0,1/0,2/3,3/4,4/4,5/7,6/7,7/7,8/7} { \node[t] at (\c,-2) {\v}; }
+\foreach \c/\v in {0/0,1/0,2/3,3/4,4/5,5/7,6/8,7/9,8/9} { \node[t] at (\c,-3) {\v}; }
+\foreach \c/\v in {0/0,1/0,2/3,3/4,4/5,5/7,6/8,7/10} { \node[t] at (\c,-5.2) {\v}; }
+\node[src] (up) at (8,-3) {9};
+\node[src] (ul) at (3,-3) {4};
+\node[dst] (me) at (8,-5.2) {11};
+\draw[diagarrow] (up) -- node[right, font=\scriptsize, xshift=4pt] {不放：$9$} (me);
+\draw[diagarrow] (ul.south east) -- (me.north west);
+\node[font=\scriptsize] at (4.6,-4.3) {放：$4 + 7$};
+\end{tikzpicture}
+\diagcaption{手機例子的 $\mathrm{best}(i, c)$。 右下角的 $11$ 從兩格算出：不下
+載影集是正上方的 $9$；下載影集要先留 $5$ GB，前三樣只能用 $3$ GB，得到左上方
+的 $4$，再加影集的 $7$。}
+\label{fig:knap-table}
+\end{center}
+
+讀幾格確認意思。 第 $2$ 列（地圖和播客）的 $c = 5$ 是 $7$：兩樣都下載剛好
+$5$ GB。 第 $3$ 列的 $c = 8$ 是 $9$：前三樣全下載要 $9$ GB，放不下，最好是播
+客加遊戲。 右下角就是答案 $11$。
+
+\subsection{找出選了哪幾件}
+
+表格只存了最大價值。 要知道是哪幾件，從右下角往回走：如果
+$\mathrm{best}(i, c)$ 和正上方的 $\mathrm{best}(i - 1, c)$ 相同，不放第 $i$
+件也能得到這個值，就當作沒放，往上走一列；不同，就一定放了第 $i$ 件，往上走一
+列並把 $c$ 減掉 $w_i$。
+
+\begin{example}[label=ex:knap-2d]{cpp}{(phone\_2d.cpp) 兩維的表，並找出放了哪幾件}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n, cap;
+    cin >> n >> cap;
+    vector<int> w(n + 1), v(n + 1);         // 物品編號 1 到 n
+    for (int i = 1; i <= n; i++) {
+        cin >> w[i] >> v[i];
+    }
+    // best[i][c] = 只看前 i 件、總重量不超過 c 的最大價值
+    vector<vector<int>> best(n + 1, vector<int>(cap + 1, 0));
+    for (int i = 1; i <= n; i++) {
+        for (int c = 0; c <= cap; c++) {
+            best[i][c] = best[i - 1][c];             // 不放
+            if (c >= w[i]) {                         // 放得下才能放
+                best[i][c] = max(best[i][c], best[i - 1][c - w[i]] + v[i]);
+            }
+        }
+    }
+    cout << best[n][cap] << '\n';
+
+    // 從右下角往回走，找出放了哪幾件
+    vector<int> picked;
+    for (int i = n, c = cap; i >= 1; i--) {
+        if (best[i][c] != best[i - 1][c]) {          // 放了第 i 件
+            picked.push_back(i);
+            c -= w[i];
+        }
+    }
+    reverse(picked.begin(), picked.end());       // 改成由小到大
+    for (int k = 0; k < (int)picked.size(); k++) {
+        cout << (k > 0 ? " " : "") << picked[k];
+    }
+    cout << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 8 \\
+2 3 \\
+3 4 \\
+4 5 \\
+5 7 \\
+}{
+11 \\
+2 4 \\
+}
+
+往回走的過程：$\mathrm{best}(4, 8) = 11 \ne \mathrm{best}(3, 8) = 9$，放了第
+$4$ 件，$c$ 變成 $3$；$\mathrm{best}(3, 3) = \mathrm{best}(2, 3) = 4$，第 $3$
+件沒放；$\mathrm{best}(2, 3) = 4 \ne \mathrm{best}(1, 3) = 3$，放了第 $2$ 件，
+$c$ 變成 $0$；最後 $\mathrm{best}(1, 0) = \mathrm{best}(0, 0)$。 放的是播客和
+影集。
+
+時間是表格的格數 $O(nW)$，每格 $O(1)$。 要注意這個 $W$ 指的是容量的數值大小，和
+輸入裡有幾個數無關：$n = 100$、$W = 10^5$ 是 $10^7$ 格，很快；同樣 $100$ 件物品，
+如果 $W$ 到 $10^9$，表格根本開不出來。 所以看到背包題，先看容量（或其他要當
+成表格一維的量）最大是多少。
+
+\section{一維陣列：為什麼要倒著填}
+\label{sec:knap-1d}
+
+$n = 200$、$W = 10^5$ 時，\texttt{long long} 的兩維表要 $200 \times 10^5
+\times 8$ 位元組，大約 $160$ MB，很多題目放不下。 轉移只用到上一列，可以照第 1 本第
+~10~章 10.3 節的滾動陣列，只留一列 \texttt{best[0..W]}：處理第 $i$ 件之前，它
+存的是第 $i - 1$ 列；處理完，變成第 $i$ 列。
+
+第 1 本第~10~章的格子是由左往右填，因為轉移需要的是「這一列」的左邊那格。 背包的轉
+移需要的是「上一列」的 \texttt{best[c - w]}，在 $c$ 的左邊。 如果由左往右填，
+填到 \texttt{best[c]} 時，左邊的 \texttt{best[c - w]} 已經被這一列的新值蓋掉
+了。 用手機的第一件物品（地圖，$w = 2$、$v = 3$）看兩種順序，一開始整列都是
+$0$：
+
+\begin{center}
+\begin{tabular}{l|ccccccccc}
+\toprule
+$c$ & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 \\
+\midrule
+處理前（第 $0$ 列） & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
+$c$ 由大到小 & 0 & 0 & 3 & 3 & 3 & 3 & 3 & 3 & 3 \\
+$c$ 由小到大 & 0 & 0 & 3 & 3 & 6 & 6 & 9 & 9 & 12 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+由小到大時，$c = 2$ 先算出 $3$（放一份地圖）；到了 $c = 4$，讀到的
+\texttt{best[2]} 已經是 $3$，再加 $3$ 得到 $6$，等於放了兩份地圖。 $c = 8$
+的 $12$ 是四份地圖。 地圖只有一份，這是錯的。
+
+由大到小時，填 \texttt{best[c]} 用到的 \texttt{best[c - w]} 在左邊，還沒輪到，
+存的一定是上一列的值：
+
+\begin{center}
+\begin{tikzpicture}[x=0.95cm, y=1cm]
+\foreach \c/\v in {0/0,1/0,2/0,3/0,4/0,5/0} { \node[cell, fill=black!8] (b\c) at (\c,0) {\v}; }
+\node[cell, draw=optStroke, very thick] (b6) at (6,0) {0};
+\foreach \c/\v in {7/3,8/3} { \node[hlcell] (b\c) at (\c,0) {\v}; }
+\foreach \c in {0,...,8} { \node[idxlbl] at (\c,-0.65) {\c}; }
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}] (-0.45,-0.95) -- (5.45,-0.95)
+    node[midway, below=5pt, font=\small] {還是第 $0$ 列（舊值）};
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}] (6.55,-0.95) -- (8.45,-0.95)
+    node[midway, below=5pt, font=\small] {已經是第 $1$ 列};
+\draw[diagarrow] (b4.north) to[bend left=35] node[above, font=\small] {$\texttt{best[4]} + 3$} (b6.north);
+\end{tikzpicture}
+\diagcaption{由大到小處理地圖，正要填 \texttt{best[6]}。 它需要的
+\texttt{best[4]} 在灰色的區域，還是處理地圖之前的值，所以地圖最多只會被放一次。}
+\label{fig:knap-reverse}
+\end{center}
+
+\begin{example}[label=ex:knap-1d]{cpp}{(phone\_1d.cpp) 0/1 背包的一維寫法}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n, cap;
+    cin >> n >> cap;
+    // best[c]：目前看過的物品裡，重量不超過 c 的最大價值
+    vector<int> best(cap + 1, 0);
+    for (int i = 0; i < n; i++) {
+        int w, v;
+        cin >> w >> v;              // 邊讀邊算，不用存下所有物品
+        for (int c = cap; c >= w; c--) {          // 由大到小
+            best[c] = max(best[c], best[c - w] + v);
+        }
+    }
+    cout << best[cap] << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 8 \\
+2 3 \\
+3 4 \\
+4 5 \\
+5 7 \\
+}{
+11 \\
+}
+
+\begin{itemize}
+\item 內層迴圈停在 \texttt{c >= w}。 $c < w$ 的格子放不下這件，維持上一列的值，
+本來就不用動，也就不會讀到 \texttt{best} 的負索引。
+\item 外層一定是物品、內層才是容量。 每件物品處理一次，處理完它，陣列就整個前
+進一列。
+\item 把內層改成 \texttt{for (int c = w; c <= cap; c++)}，範例的輸入會印出
+\texttt{12}，就是四份地圖。 範例的答案很容易剛好對，這種錯要用小輸入手算或
+對拍才抓得到。
+\end{itemize}
+
+壓成一維之後，用第~\ref{sec:knap-01}~節的方法往回找選了哪幾件就做不到了，因為
+前面幾列已經被蓋掉。 題目要輸出選法時，用兩維的表（或另外記錄每一格是怎麼來
+的）。
+
+\subsection{例題：總務股長的挑選法差多少}
+\label{sec:ex-treasurer}
+
+\textbf{題意}（\akiref{how-far-off-is-the-treasurers-rule}{總務股長的挑選法差多少}）
+
+\begin{itemize}
+\item 班費 $B$ 元，有 $n$ 種材料，第 $i$ 種價格 $p_i$、效益 $e_i$，每種最多買一
+份。
+\item 總務股長的方法：依 $e_i / p_i$ 由大到小排；比值相同時價格低的在前，再相
+同時編號小的在前。 依序看，剩下的錢買得起就買，買不起就跳過、繼續看下一種。
+\item 輸出兩個數：照這個方法得到的效益總和，以及總價不超過 $B$ 時效益總和的最
+大值。
+\item $n \le 200$，$B \le 10^5$，$p_i \le 10^5$，$e_i \le 10^9$。
+\end{itemize}
+
+把章首的手機換成材料：$B = 8$，四種材料的（價格，效益）是 $(2, 3)$、$(3, 4)$、
+$(4, 5)$、$(5, 7)$。 比值由大到小是第 $1$ 種（$1.5$）、第 $4$ 種（$1.4$）、第
+$2$ 種、第 $3$ 種。 總務股長買第 $1$、$4$ 種，剩 $1$ 元，效益 $10$；最大值是買
+第 $2$、$4$ 種的 $11$。 輸出 \texttt{10 11}。
+
+\textbf{想法}
+
+題目要兩個數，各自是一個已經學過的東西。 第一個數是第 1 本第~7~章那條比值規則，照題
+目規定模擬就好；第二個數是 0/1 背包，容量是班費，重量是價格。 暴力解枚舉所有
+買法要 $2^{200}$ 種，不可能；背包的表是 $n \times B = 2 \times 10^7$ 格，可以，
+但兩維的 \texttt{long long} 表要 $160$ MB，所以用一維。
+
+模擬的部分要小心比較比值。 $e_a / p_a > e_b / p_b$ 等於
+$e_a \cdot p_b > e_b \cdot p_a$（價格都是正的，兩邊同乘不會變號），改成交叉相
+乘就不用浮點數，也不會有「看起來相等、其實差一點點」的問題。 乘積最大是
+$10^9 \times 10^5 = 10^{14}$，要用 \texttt{long long}。
+
+這題也把第 1 本第~7~章的結論變成數字：比值規則在可以切開的時候是對的，物品不能切開時
+可能差一截。 同樣的模型出現在很多地方：預算內挑幾個專案、硬碟空間有限時挑哪
+些檔案備份、一天的時間裡挑哪幾件工作做。
+
+\textbf{程式}
+
+\begin{example}[label=ex:treasurer]{cpp}{(treasurer.cpp) 總務股長的挑選法差多少}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, budget;
+    cin >> n >> budget;
+    vector<long long> price(n), gain(n);
+    for (int i = 0; i < n; i++) {
+        cin >> price[i] >> gain[i];
+    }
+
+    // 總務股長的方法：比值大的在前，比值相同時便宜的在前，再相同時編號小的在前
+    vector<int> order(n);
+    for (int i = 0; i < n; i++) {
+        order[i] = i;
+    }
+    sort(order.begin(), order.end(), [&](int a, int b) {
+        long long left = gain[a] * price[b], right = gain[b] * price[a];
+        if (left != right) {
+            return left > right;          // gain[a]/price[a] > gain[b]/price[b]
+        }
+        if (price[a] != price[b]) {
+            return price[a] < price[b];
+        }
+        return a < b;
+    });
+    long long money = budget, greedy = 0;
+    for (int i : order) {
+        if (price[i] <= money) {          // 買不起就跳過，繼續看下一種
+            money -= price[i];
+            greedy += gain[i];
+        }
+    }
+
+    // 0/1 背包：best[c] = 目前看過的材料裡，總價不超過 c 的最大效益
+    vector<long long> best(budget + 1, 0);
+    for (int i = 0; i < n; i++) {
+        for (int c = budget; c >= price[i]; c--) {   // 由大到小
+            best[c] = max(best[c], best[c - price[i]] + gain[i]);
+        }
+    }
+    cout << greedy << ' ' << best[budget] << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 8 \\
+2 3 \\
+3 4 \\
+4 5 \\
+5 7 \\
+}{
+10 11 \\
+}
+
+\begin{itemize}
+\item \texttt{sort} 排的是編號 \texttt{order}，比較函式用 \texttt{[\&]} 抓
+\texttt{price} 和 \texttt{gain} 來比（銜接書第~9~章的 lambda）。 最後比編號，
+任兩種材料都分得出先後，排序的結果只有一種。
+\item 價格可能大於 $B$。 這時內層迴圈的條件 \texttt{c >= price[i]} 一開始就不
+成立，這種材料自然被跳過，不用另外判斷。
+\item 效益總和最大大約 $200 \times 10^9 = 2 \times 10^{11}$，\texttt{greedy}
+和 \texttt{best} 都要用 \texttt{long long}。
+\end{itemize}
+
+\textbf{複雜度}
+
+排序 $O(n \log n)$，背包 $O(nB)$，$n = 200$、$B = 10^5$ 時是 $2 \times 10^7$
+次更新。 最大的測試資料在本書測試的環境下約 $0.05$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{買不起就停下來}：模擬時寫成 \texttt{if (price[i] > money)
+break;}。 輸入 \texttt{3 6}、\texttt{5 10}、\texttt{4 6}、\texttt{1 1}（每個
+是一行）的正確輸出是 \texttt{11 11}：買了第一種之後剩 $1$ 元，第二種買不起，
+跳過，第三種買得起。 停下來的寫法印出 \texttt{10 11}。
+\item \textbf{交叉相乘用 \texttt{int}}：把 \texttt{price}、\texttt{gain} 和
+\texttt{left}、\texttt{right} 都改成 \texttt{int}。 輸入
+\begin{code}{text}{乘積超過 int 的輸入}
+2 10
+7 1000000000
+7 1
+\end{code}
+正確輸出是 \texttt{1000000000 1000000000}。 $10^9 \times 7$ 超過
+\texttt{int}，在本書測試的環境下比較的結果顛倒，先買了效益 $1$ 的那一種，印出
+\texttt{1 1000000000}。
+\item \textbf{背包的迴圈由小到大}：範例的輸入印出 \texttt{10 12}，同一種材料買
+了好幾份。 0/1 背包的一維寫法，容量一定由大到小。
+\end{itemize}
+
+\section{剛好裝滿與湊不出來的容量}
+\label{sec:knap-exact}
+
+到目前為止，$\mathrm{best}(c)$ 的意思都是「總重量\textbf{不超過} $c$」。 有些
+題目要求\textbf{剛好}：廣播時段要剛好播滿、展示櫃要剛好排滿、郵資要剛好貼滿。
+這時有些容量根本湊不出來，表格裡要有一個值代表「這個容量不可能」。
+
+只要改初始值。 狀態改成「總重量剛好是 $c$ 的最大價值」，一件物品都沒有時，只
+有 $c = 0$ 湊得出來（什麼都不放）：
+\[
+\mathrm{best}(0) = 0,\qquad \mathrm{best}(c) = \text{湊不出來}\quad (c \ge 1).
+\]
+轉移不變，只多一條規則：湊不出來的格子不能拿來轉移，因為「在湊不出來的組合上再
+放一件」也還是湊不出來。 手機的例子改成「剛好用完空間」，四件物品處理完是：
+
+\begin{center}
+\begin{tabular}{l|ccccccccc}
+\toprule
+$c$ & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 \\
+\midrule
+不超過 $c$（初始全部 $0$） & 0 & 0 & 3 & 4 & 5 & 7 & 8 & 10 & 11 \\
+剛好 $c$（初始只有 $0$ 是 $0$） & 0 & -- & 3 & 4 & 5 & 7 & 8 & 10 & 11 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+「--」是湊不出來。 這四件物品的重量最小是 $2$，$1$ GB 怎樣都湊不出。 其他容
+量兩列剛好一樣，但只看前三件時就不同了：前三件的「剛好 $8$」湊不出來（$2$、$3$、
+$4$ 的組合沒有一種加起來是 $8$），「不超過 $8$」是 $9$。 兩種定義的關係是：
+「不超過 $c$」等於「剛好 $0$、剛好 $1$、……、剛好 $c$」裡最大的那個。
+
+「湊不出來」在程式裡有兩種常見的寫法：
+
+\begin{itemize}
+\item 價值都不是負數時，用 \texttt{-1}。 轉移前檢查
+\texttt{best[c - w] != -1}，最後直接輸出，\texttt{-1} 剛好就是很多題目要的
+「做不到」。 忘了檢查的話，\texttt{-1 + v} 會被當成一個真的價值。
+\item 用一個很小的數 \texttt{NEG}，例如 \texttt{LLONG\_MIN / 4}。 它加上任何
+可能的價值總和仍然非常小，取 \texttt{max} 時永遠輸，可以不檢查；不能直接用
+\texttt{LLONG\_MIN}，減一點點就溢位。 輸出前要判斷 \texttt{best[c] < 0}（或
+和 \texttt{NEG} 同一個數量級）就是湊不出來。
+\end{itemize}
+
+求最小值的題目反過來，用一個很大的 \texttt{INF}，第 1 本第~9~章練習第~2~題的郵票就
+是這樣。 不管哪一種，先用一句話寫清楚狀態是「不超過」還是「剛好」，初始值跟
+著它走。
+
+「不超過」的表還有一個好用的性質：$c$ 越大能放的東西只會越多，所以
+$\mathrm{best}(c)$ 隨 $c$ 不會變小。 最大值第一次出現的位置，就是「要拿到最大
+價值，最少要用多少容量」。 第~\ref{sec:knap-bounded}~節的例題會用到。
+
+\section{完全背包}
+\label{sec:knap-unbounded}
+
+如果每種物品都可以拿任意多個，叫\textbf{完全背包}（unbounded knapsack）。 第
+~\ref{sec:knap-1d}~節那個錯誤的寫法，在這裡就是對的：容量由小到大，填
+\texttt{best[c]} 時讀到的 \texttt{best[c - w]} 可能已經放了這種物品，再放一個
+就是放第二個、第三個。
+\[
+\mathrm{best}(c) = \max\bigl(\mathrm{best}(c),\ \mathrm{best}(c - w_i) + v_i\bigr),
+\quad c \text{ 由小到大}.
+\]
+
+用兩維的表想也一樣清楚。 完全背包的 $\mathrm{best}(i, c)$ 中，「放第 $i$ 種」
+之後還可以再放第 $i$ 種，所以要從同一列的 $\mathrm{best}(i, c - w_i)$ 轉
+移。 同一列的左邊要先算好，所以由小到大。 0/1 和完全背包的一維程式只
+差在內層迴圈的方向：
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+ & 放了第 $i$ 種之後 & 一維的內層迴圈 \\
+\midrule
+0/1 背包 & 只能看前 $i - 1$ 種（上一列） & \texttt{c} 由大到小 \\
+完全背包 & 還能再放第 $i$ 種（同一列） & \texttt{c} 由小到大 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+第 1 本第~9~章的郵票其實就是完全背包：每種郵票張數不限，價值都是「一張」，要剛好貼滿
+並讓張數最少。 第 1 本第~9~章的迴圈是金額在外層、面額在內層，這裡是物品在外層、容量在
+內層。 求最大或最小值時兩種都對：算 \texttt{best[x]} 的時候，比它小的金額都已
+經是最終的答案，「最後一張是哪一種」全部試過一次。 求方法數時兩種順序的答案不
+同，第~\ref{sec:knap-count}~節會看到。
+
+\subsection{例題：剛好排滿的展示櫃}
+\label{sec:ex-shelf}
+
+\textbf{題意}（\akiref{a-perfectly-filled-display-shelf}{剛好排滿的展示櫃}）
+
+\begin{itemize}
+\item 展示櫃有 $q$ 層，第 $j$ 層寬 $L_j$。 有 $n$ 種模型盒，第 $i$ 種寬 $w_i$、
+展示分數 $v_i$，每種數量不限。
+\item 每一層都要剛好排滿：盒子寬度加起來剛好等於這一層的寬度。 各層互不影響。
+\item 對每一層輸出最大的分數總和，排不滿的層輸出 \texttt{-1}。
+\item $n \le 100$，$q \le 10^4$，$w_i, L_j \le 10^4$，$v_i \le 10^6$。
+\end{itemize}
+
+例如三種盒子（寬，分數）是 $(4, 5)$、$(6, 8)$、$(9, 12)$，四層寬 $10$、$11$、
+$12$、$13$。 寬 $10$ 是 $4 + 6$，$13$ 分；寬 $11$ 怎麼組都湊不出來，輸出
+\texttt{-1}；寬 $12$ 有 $6 + 6$（$16$ 分）和 $4 + 4 + 4$（$15$ 分），取 $16$；
+寬 $13$ 是 $4 + 9$，$17$ 分。
+
+\textbf{想法}
+
+一層就是一次「剛好裝滿」的完全背包，容量是這一層的寬度。 最直接的做法是每一層
+各做一次：一次 $O(nL)$，最多 $100 \times 10^4 = 10^6$；$q = 10^4$ 層要
+$10^{10}$，來不及。
+
+能改進，是因為表格的意思：$\mathrm{best}(c)$ 是「剛好排滿寬度 $c$」的最大分數，填到最
+寬的那一層時，比它窄的每一個寬度都順便算好了。 所以只要做一次，容量開到所有層
+裡最寬的 $\max L$，每一層直接查 \texttt{best[L[j]]}。
+
+這題要剛好排滿，所以用第~\ref{sec:knap-exact}~節的初始值；盒子數量不限，所以
+容量由小到大。 分數都是正的，「湊不出來」用 \texttt{-1}。 下面是範例的表：
+
+\begin{center}
+\begin{tabular}{l|cccccccccccccc}
+\toprule
+寬 $c$ & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & 9 & 10 & 11 & 12 & 13 \\
+\midrule
+\texttt{best[c]} & 0 & -1 & -1 & -1 & 5 & -1 & 8 & -1 & 10 & 12 & 13 & -1 & 16 & 17 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\texttt{best[8]} $= 10$ 是兩個寬 $4$ 的盒子，同一種用了兩次；
+\texttt{best[12]} 在處理寬 $6$ 的盒子時，從 \texttt{best[6]} $= 8$ 再加一個寬
+$6$ 的盒子，得到 $16$，比處理寬 $4$ 時從 \texttt{best[8]} 得到的 $15$ 大。
+
+同樣的模型也出現在別的地方：把一捲布剪成固定幾種長度的布條、一點都不能剩；用
+幾種規格的木板鋪滿一段走道。
+
+\textbf{程式}
+
+\begin{example}[label=ex:shelf]{cpp}{(shelf.cpp) 剛好排滿的展示櫃}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, q;
+    cin >> n >> q;
+    vector<int> width(n);
+    vector<long long> score(n);
+    for (int i = 0; i < n; i++) {
+        cin >> width[i] >> score[i];
+    }
+    vector<int> len(q);
+    int maxLen = 0;
+    for (int j = 0; j < q; j++) {
+        cin >> len[j];
+        maxLen = max(maxLen, len[j]);
+    }
+
+    const long long NONE = -1;                // 湊不出這個寬度
+    vector<long long> best(maxLen + 1, NONE); // best[c] = 剛好排滿寬度 c 的最大分數
+    best[0] = 0;
+    for (int i = 0; i < n; i++) {
+        for (int c = width[i]; c <= maxLen; c++) {   // 由小到大：同一種可以重複放
+            if (best[c - width[i]] != NONE) {
+                best[c] = max(best[c], best[c - width[i]] + score[i]);
+            }
+        }
+    }
+    for (int j = 0; j < q; j++) {
+        cout << best[len[j]] << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 4 \\
+4 5 \\
+6 8 \\
+9 12 \\
+10 11 12 13 \\
+}{
+13 \\
+-1 \\
+16 \\
+17 \\
+}
+
+\begin{itemize}
+\item 盒子比最寬的層還寬時，\texttt{c} 從 \texttt{width[i]} 開始就已經超過
+\texttt{maxLen}，迴圈一次都不跑。
+\item \texttt{best[c]} 本來是 \texttt{-1}，第一次找到排法時，\texttt{max} 一
+定選新的值，因為分數至少是 $1$。
+\item 一層最多 $10^4$ 個寬 $1$ 的盒子，每個 $10^6$ 分，總和 $10^{10}$，超過
+\texttt{int}。
+\end{itemize}
+
+\textbf{複雜度}
+
+一次完全背包是 $O(n \cdot \max L) = 10^6$，加上 $q$ 次查表。 最大的測試資料在
+本書測試的環境下約 $0.02$ 秒。
+
+\subsection{常見錯誤}
+
+以下都用範例的輸入，正確輸出是 \texttt{13 -1 16 17}（每個一行）。
+
+\begin{itemize}
+\item \textbf{初始值全部設成 $0$}：算出的是「不超過」，寬 $11$ 的那層印出
+\texttt{13}（放 $4 + 6$，留 $1$ 的空隙）。 而且永遠不會印出 \texttt{-1}。
+\item \textbf{轉移前沒有檢查 \texttt{-1}}：寬 $11$ 印出 \texttt{12}，是從湊
+不出來的格子加上分數得到的假答案。
+\item \textbf{容量由大到小}：變成每種只能用一個，寬 $12$ 印出 \texttt{-1}，
+因為 $4$、$6$、$9$ 各用一次湊不出 $12$。
+\item \textbf{每一層重做一次背包}：答案都對，但最大的測試資料要做 $10^{10}$
+次更新，超過時間限制。
+\end{itemize}
+
+\section{子集合和與方法數}
+\label{sec:knap-count}
+
+背包的表格不一定存「最大價值」。 換成別的東西，就能回答別的問題。
+
+\subsection{做不做得到：子集合和}
+
+只問「能不能剛好湊出 $c$」時，每一格存 \texttt{true} 或 \texttt{false}，叫
+\textbf{子集合和}（subset sum）。 例如一箱東西要分給兩個人，重量要剛好一樣，就
+是問「能不能從裡面挑出總和剛好一半的東西」。 每件東西只有一件，所以倒著填：
+
+\begin{code}{cpp}{子集合和（0/1）}
+vector<char> can(total + 1, 0);   // can[c]：挑出總和剛好 c 的方法存不存在
+can[0] = 1;                       // 什麼都不挑
+for (int x : a) {
+    for (int c = total; c >= x; c--) {
+        if (can[c - x]) {
+            can[c] = 1;
+        }
+    }
+}
+\end{code}
+
+用 \texttt{vector<char>} 而不用 \texttt{vector<bool>}，是因為後者為了省空間把
+八格擠在一個位元組裡，存取比較慢，在本書測試的環境下大約慢一倍。 處理完之
+後，\texttt{can} 一次回答了所有的 $c$：哪些總和湊得出來、最接近一半的是多少、
+最大的湊不出來的數是多少，都是掃一遍 \texttt{can} 的事。
+
+\subsection{有幾種方法}
+
+把 \texttt{max} 換成加法，每一格存「剛好湊出 $c$ 的方法數」：
+\[
+\mathrm{ways}(c) \mathrel{+}= \mathrm{ways}(c - w_i),\qquad \mathrm{ways}(0) = 1.
+\]
+$\mathrm{ways}(0) = 1$ 是「什麼都不放」這一種方法，和第 1 本第~9~章計數題的起點一樣。
+0/1 還是完全，一樣看迴圈方向。
+
+計數題要多想一件事：怎樣算「不同的方法」。 例子：集點卡有 $10$ 點，可以換三種
+贈品，分別要 $2$、$3$、$5$ 點，每種想換幾個都可以，點數要剛好用完。
+
+\begin{itemize}
+\item 只看每種換幾個：$5 + 5$、$5 + 3 + 2$、$3 + 3 + 2 + 2$、
+$2 + 2 + 2 + 2 + 2$，共 $4$ 種。 這叫\textbf{組合}。
+\item 一次換一個，換的先後不同就算不同（$2 + 3 + 5$ 和 $5 + 3 + 2$ 是兩種）：
+共 $14$ 種。 這是第 1 本第~9~章跳格子的算法，叫\textbf{排列}。
+\end{itemize}
+
+兩種答案用的是同一個轉移，只差在兩層迴圈誰在外面：
+
+\begin{example}[label=ex:count-ways]{cpp}{(count\_ways.cpp) 組合數和排列數}
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    const long long MOD = 1000000007;
+    int n, target;
+    cin >> n >> target;
+    vector<int> cost(n);
+    for (int &x : cost) {
+        cin >> x;
+    }
+
+    // 只看每種換幾個：物品在外層
+    vector<long long> combo(target + 1, 0);
+    combo[0] = 1;
+    for (int i = 0; i < n; i++) {
+        for (int c = cost[i]; c <= target; c++) {
+            combo[c] = (combo[c] + combo[c - cost[i]]) % MOD;
+        }
+    }
+
+    // 先後不同算不同：點數在外層
+    vector<long long> seq(target + 1, 0);
+    seq[0] = 1;
+    for (int c = 1; c <= target; c++) {
+        for (int i = 0; i < n; i++) {
+            if (cost[i] <= c) {
+                seq[c] = (seq[c] + seq[c - cost[i]]) % MOD;
+            }
+        }
+    }
+    cout << combo[target] << ' ' << seq[target] << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 10 \\
+2 3 5 \\
+}{
+4 14 \\
+}
+
+物品在外層時，下表是處理完每一種贈品後的 \texttt{combo}：
+
+\begin{center}
+\begin{tabular}{l|ccccccccccc}
+\toprule
+點數 $c$ & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & 9 & 10 \\
+\midrule
+只有 $2$ 點的 & 1 & 0 & 1 & 0 & 1 & 0 & 1 & 0 & 1 & 0 & 1 \\
+加上 $3$ 點的 & 1 & 0 & 1 & 1 & 1 & 1 & 2 & 1 & 2 & 2 & 2 \\
+加上 $5$ 點的 & 1 & 0 & 1 & 1 & 1 & 2 & 2 & 2 & 3 & 3 & 4 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+為什麼物品在外層就不會重複？ 處理第 $i$ 種贈品時，表格裡的每一種方法，都是
+「先決定前 $i - 1$ 種各換幾個，再決定第 $i$ 種換幾個」。 每一種組合只會用這個
+固定的順序被數到一次：$5 + 3 + 2$ 只會被當成「$2$ 點的一個、$3$ 點的一個、$5$
+點的一個」。 點數在外層時，算 $\mathrm{seq}(c)$ 是在問「最後一個換的是哪一
+種」，每一種都試，$2 + 3 + 5$ 和 $5 + 3 + 2$ 的最後一個不同，就被分開數。
+
+第 1 本第~9~章練習第~3~題的郵票也是這樣：$1$、$5$、$6$ 元貼滿 $12$ 元，依序貼的貼法
+有 $29$ 種；把同一支程式的輸入改成 \texttt{3 12} 和 \texttt{1 5 6}，第一個數
+是 $6$，就是不管先後的貼法數。
+
+\begin{apcsnote}
+實作題由電腦自動評分，只看輸出。 計數題的範例通常很小，組合數和排列數有時剛好
+一樣（例如只有一種物品，或目標小到只有一種湊法），範例過了不代表數對了東西。
+寫之前先照題目對「不同」的規定，手算一組有兩三種物品的小例子，再決定哪一層迴
+圈在外面。 答案要取餘數時，每做一次加法就取一次。
+\end{apcsnote}
+
+\section{多重背包：二進位拆分}
+\label{sec:knap-bounded}
+
+第三種情況介在中間：第 $i$ 種物品有 $k_i$ 個，最多拿 $k_i$ 個，叫\textbf{多重
+背包}（bounded knapsack）。
+
+最直接的做法是把它當成 $k_i$ 件一模一樣的物品，做 0/1 背包。 這是對的，但慢：
+物品總數變成 $\sum k_i$，時間是 $O(W \sum k_i)$。 $n = 200$、$k_i = 1000$、
+$W = 10^5$ 時是 $2 \times 10^{10}$。
+
+\textbf{二進位拆分}（binary splitting）的想法：把 $k$ 個拆成幾包，每包當成一件
+0/1 物品，只要「挑某幾包」能湊出 $0$ 到 $k$ 的每一種個數就夠了。 包的大小取
+$1, 2, 4, \ldots$，最後一包放剩下的。 例如 $k = 13$：
+\[
+13 = 1 + 2 + 4 + 6.
+\]
+$0$ 到 $7$ 用前三包就湊得出來（就是二進位）；$8$ 到 $13$ 先拿 $6$ 那一包，剩
+下的 $2$ 到 $7$ 再用前三包。 而四包全拿是 $13$，不會超過庫存。 一種物品原本
+要當成 $13$ 件，現在只要 $4$ 件；$k = 1000$ 只要 $10$ 件。 每一包的重量和價值
+是單個的倍數，例如 $4$ 個一包，重量 $4w$、價值 $4v$。
+
+\begin{whybox}[拆出來的包剛好湊得出 $0$ 到 $k$]
+照程式的拆法，包的大小是 $1, 2, \ldots, 2^{m-1}$，加上最後一包 $r$，其中
+$1 \le r \le 2^m$，而且 $1 + 2 + \cdots + 2^{m-1} + r = (2^m - 1) + r = k$。
+
+\begin{itemize}
+\item 湊得出來：$0 \le x \le 2^m - 1$ 時，$x$ 的二進位寫法就告訴我們拿前 $m$ 包
+的哪幾包。 $2^m \le x \le k$ 時，先拿 $r$ 那一包，剩下 $x - r$。 因為
+$x \le k$，$x - r \le k - r = 2^m - 1$；因為 $x \ge 2^m \ge r$，$x - r \ge 0$。
+所以剩下的也能用前 $m$ 包湊出。
+\item 不會超過：所有包加起來剛好 $k$，任挑幾包都不超過 $k$。
+\end{itemize}
+
+0/1 背包會考慮「每包拿或不拿」的所有組合，等於考慮了 $0$ 到 $k$ 的每一種個數，
+不多也不少，所以答案和多重背包一樣。
+\end{whybox}
+
+\subsection{例題：有限庫存的兌換獎品}
+\label{sec:ex-prizes}
+
+\textbf{題意}（\akiref{prizes-in-limited-stock}{有限庫存的兌換獎品}）
+
+\begin{itemize}
+\item 手上有 $T$ 點。 有 $n$ 種獎品，第 $i$ 種每個 $p_i$ 點、滿意度 $v_i$，只剩
+$k_i$ 個。
+\item 每種換 $0$ 到 $k_i$ 個，花的點數總和不超過 $T$。
+\item 先讓總滿意度最大；最大值有好幾種換法時，取花最少點數的。 輸出最大總滿意
+度，以及達到它最少要花幾點。
+\item $n \le 200$，$T \le 10^5$，$v_i \le 10^5$，$k_i \le 1000$。
+\end{itemize}
+
+例如 $T = 10$，鑰匙圈每個 $2$ 點、滿意度 $5$，剩 $3$ 個；便條本 $3$ 點、滿意
+度 $6$，剩 $1$ 個；抱枕 $5$ 點、滿意度 $10$，剩 $1$ 個。 換三個鑰匙圈加便條本，
+花 $9$ 點、滿意度 $21$；換一個鑰匙圈、便條本和抱枕，花 $10$ 點，也是 $21$。
+沒有更好的換法，輸出 \texttt{21 9}。 如果忘了庫存，鑰匙圈換五個就有 $25$。
+
+\textbf{想法}
+
+暴力解是枚舉每種換幾個，$1001^{200}$ 種，不可能。 每種獎品當成 $k_i$ 件物品做
+0/1 背包，前面算過要 $2 \times 10^{10}$ 次，太慢。 用二進位拆分，每種最多 $10$
+包，$200$ 種是 $2000$ 包，0/1 背包做 $2000 \times 10^5 = 2 \times 10^8$ 次簡單
+的更新，可以。
+
+第二個數用第~\ref{sec:knap-exact}~節最後的性質。 \texttt{best[c]} 是「花不超
+過 $c$ 點」的最大滿意度，隨 $c$ 不減。 設 $c^*$ 是 \texttt{best[c]} 第一次
+等於 \texttt{best[T]} 的位置：
+
+\begin{itemize}
+\item 有一種換法花不超過 $c^*$ 點就拿到最大值，所以最少的花費 $\le c^*$。
+\item 如果某種換法只花 $c' < c^*$ 點就拿到最大值，\texttt{best[c']} 就至少是
+最大值，第一次出現的位置會在 $c'$ 或更前面，和 $c^*$ 的定義矛盾。
+\end{itemize}
+
+所以 $c^*$ 就是答案。 範例的 \texttt{best[9]} $=$ \texttt{best[10]} $= 21$，
+\texttt{best[8]} $= 20$，$c^* = 9$。
+
+同樣的模型也出現在別的地方：倉庫裡每種貨只剩幾箱，貨車載重有限；餐廳的每道菜
+限量供應，預算內點菜。
+
+\textbf{程式}
+
+\begin{example}[label=ex:prizes]{cpp}{(prizes.cpp) 有限庫存的兌換獎品}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, points;
+    cin >> n >> points;
+    // best[c] = 花不超過 c 點的最大總滿意度
+    vector<long long> best(points + 1, 0);
+    for (int i = 0; i < n; i++) {
+        long long cost, joy;
+        int stock;
+        cin >> cost >> joy >> stock;
+        // 把 stock 個拆成 1, 2, 4, ... 和剩下的，每一包當成一件 0/1 物品
+        for (int size = 1; stock > 0; size *= 2) {
+            int take = min(size, stock);
+            stock -= take;
+            long long w = take * cost, v = take * joy;
+            for (long long c = points; c >= w; c--) {
+                best[c] = max(best[c], best[c - w] + v);
+            }
+        }
+    }
+    int least = 0;                          // 最大值第一次出現的位置
+    while (best[least] != best[points]) {
+        least++;
+    }
+    cout << best[points] << ' ' << least << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 10 \\
+2 5 3 \\
+3 6 1 \\
+5 10 1 \\
+}{
+21 9 \\
+}
+
+\begin{itemize}
+\item 拆包的迴圈裡，\texttt{size} 每次加倍，\texttt{take} 是這一包實際的個數。
+最後一輪 \texttt{stock} 比 \texttt{size} 小，\texttt{take} 就是剩下的。 例如
+$3$ 個拆成 $1$、$2$，$13$ 個拆成 $1$、$2$、$4$、$6$。
+\item 一包的重量 \texttt{w} 可能超過 \texttt{points}，內層迴圈不跑，這一包等於
+不存在，不影響答案：拿得到的個數本來就受點數限制。
+\item 總滿意度最大約 $200 \times 1000 \times 10^5 = 2 \times 10^{10}$，要用
+\texttt{long long}。
+\end{itemize}
+
+\textbf{複雜度}
+
+包的總數不超過 $\sum \lceil \log_2(k_i + 1) \rceil \le 200 \times 10$，每包掃一次
+容量，共約 $2 \times 10^8$ 次。 最大的測試資料在本書測試的環境下約 $0.5$ 秒，
+這題的時間限制是 $2$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{忽略庫存}：當成完全背包，範例的輸入印出 \texttt{25 10}，換了五
+個鑰匙圈。
+\item \textbf{拆包時漏掉剩下的，或拆過頭}：$13$ 個只拆成 $1$、$2$、$4$，最多
+只能拿到 $7$ 個；拆成 $1$、$2$、$4$、$8$，可以拿到 $15$ 個，超過庫存。 兩種錯
+在範例都看不出來，因為範例的庫存是 $3$ 和 $1$，剛好拆得乾淨。
+\item \textbf{第二個數直接輸出 $T$}：範例印出 \texttt{21 10}。 最佳的換法不一
+定把點數用完。
+\item \textbf{每一包的迴圈由小到大}：一包被拿了好幾次，範例同樣印出
+\texttt{25 10}。 拆出來的包是 0/1 物品，一定由大到小。
+\end{itemize}
+
+\section{背包的變形}
+\label{sec:knap-variants}
+
+很多題目讀起來不像背包，寫出狀態才發現是。 下面幾種變形都只是在前面的表格上
+改一兩個地方。 認題目的時候問自己三件事：哪個量有上限（它就是容量）、每樣東西
+能拿幾次（0/1、完全、多重）、要「不超過」還是「剛好」。
+
+\textbf{每組恰好選一個。} 東西分成好幾組，每組一定要選一個、也只能選一個，例
+如每門課從開出的幾個時段裡選一個。 每處理一組，就開一個新的陣列，初始全部是「湊
+不出來」，只從「選了這組的某一個」轉移過來：
+
+\begin{code}{cpp}{每組恰好選一個}
+vector<long long> next(cap + 1, NONE);         // 這一組一定要選一個
+for (auto [w, v] : group) {
+    for (int c = w; c <= cap; c++) {
+        if (best[c - w] != NONE) {
+            next[c] = max(next[c], best[c - w] + v);
+        }
+    }
+}
+best = next;
+\end{code}
+
+\texttt{next} 只從舊的 \texttt{best} 轉移，所以同一組不會選兩個（迴圈方向也就
+不重要了）；\texttt{next} 不從「不選」轉移，所以每組一定選一個。 如果規則是
+「每組最多選一個」，\texttt{next} 改成從 \texttt{best} 複製一份再更新。
+
+\textbf{容量會是負的。} 例如每個動作讓室溫上升或下降，最後要落在某個範
+圍。 把所有可能的總和加上一個固定的偏移量 \texttt{OFF}，平移到從 $0$ 開始的索
+引。 0/1 的掃描方向要看轉移從哪邊來：$w > 0$ 時從左邊來，由大到小；$w < 0$ 時
+從右邊來，由小到大。 原則都一樣：讀到的格子必須還是舊值。
+
+\textbf{兩種限制同時存在。} 例如同時限制重量和體積，狀態變成
+$\mathrm{best}(a, b)$，表格多一維，0/1 時兩層容量迴圈都由大到小。 時間和空間
+都乘上第二個容量，先估一下放不放得下。
+
+\textbf{需要「至少」。} 例如要買到至少 $X$ 度電、總價最低。 超過 $X$ 的部分都
+一樣好，所以容量只開到 $X$，所有超過的都算在第 $X$ 格：完全背包可以寫成
+$\mathrm{cost}(c) = \min_i \bigl(\mathrm{cost}(\max(0, c - a_i)) + p_i\bigr)$，
+$c$ 由小到大。 如果不截在 $X$，一包裡的數量很大時，表格要開到很遠。
+
+\textbf{容量太大。} 容量到 $10^9$，表格開不出來。 先看別的量是不是很小：
+如果價值總和很小，就把價值當成表格的一維，存「拿到這麼多價值最少要多少重量」，
+最後找重量不超過 $W$ 的最大價值。 如果物品只有二三十件，用第 1 本第~4~章的子集合枚
+舉。 兩個都很大，通常是題目還有別的性質沒看出來。
+
+\subsection{什麼時候用背包}
+
+\begin{itemize}
+\item 有一個「總和不能超過」或「總和要剛好」的量（重量、預算、時間、點數），每
+樣東西各佔一些，要挑一些出來。
+\item 這個量的上限不大，大約 $10^5$ 以內，乘上物品數在 $10^8$ 左右以內。
+\item 東西不能切開。 能切開時用第 1 本第~7~章練習第~2~題的比值貪心，快很多。
+\end{itemize}
+
+看起來像、但不能直接用的情況：
+
+\begin{itemize}
+\item 容量和價值都到 $10^9$、物品又多：狀態開不出來，要找題目的其他性質，或者
+用貪心並證明它。
+\item 物品的價值會受到別的物品影響，例如「同時買 A 和 B 打八折」。 單純的背包假
+設每樣東西的價值固定；要先想辦法把會互相影響的東西綁成一組，變成「每組選一
+個」。
+\end{itemize}
+
+\section{本章常見錯誤}
+\label{sec:knap-pitfalls}
+
+各節的錯誤，歸納起來是四類。 寫背包題時，交出去之前逐項檢查。
+
+\begin{center}
+\begin{tabular}{p{0.2\linewidth}p{0.46\linewidth}p{0.22\linewidth}}
+\toprule
+錯誤 & 例子 & 見 \\
+\midrule
+迴圈方向錯 & 0/1 背包或拆出來的包由小到大，同一件被拿好幾次；完全背包由大到
+小，每種只能拿一個 & 第~\ref{sec:knap-1d}、\ref{sec:ex-shelf}、
+\ref{sec:ex-prizes}~節 \\
+初始值錯 & 要「剛好」卻全部設成 $0$；湊不出來的 \texttt{-1} 拿去轉移 &
+第~\ref{sec:knap-exact}、\ref{sec:ex-shelf}~節 \\
+數錯東西 & 數組合時把容量放在外層；忽略庫存；第二個答案直接輸出容量 &
+第~\ref{sec:knap-count}、\ref{sec:ex-prizes}~節 \\
+該重用卻重算 & 每個詢問重做一次背包；多重背包展開成 $k$ 件 &
+第~\ref{sec:ex-shelf}、\ref{sec:knap-bounded}~節 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+另外，背包的價值總和很容易超過 \texttt{int}：動手前先算「物品數 $\times$ 最大
+價值 $\times$ 最多拿幾個」。 還有一個只有小輸入抓得到的錯：範例的答案常常剛好
+不受迴圈方向影響，寫完用兩三件物品手算一次，或用第 1 本第~4~章的子集合枚舉對拍。
+
+\section{本章練習}
+\label{sec:knap-exercises}
+
+\begin{drills}[label=drills:knap]
+\item 四件物品（重量，價值）依序是 $(3, 5)$、$(1, 2)$、$(4, 7)$、$(2, 3)$，
+容量 $6$。
+\begin{enumerate}
+\item 用一維陣列、容量由大到小，寫出處理完每一件之後的 \texttt{best[0..6]}。
+\item 如果容量寫成由小到大，最後的 \texttt{best[6]} 是多少？ 它對應哪一種「拿
+法」？
+\end{enumerate}
+
+\item 某人要算「$2$、$3$、$5$ 點的贈品換剛好 $10$ 點，只看每種換幾個的方法數」，
+寫成：
+\begin{code}{cpp}{練習 2}
+ways[0] = 1;
+for (int c = 1; c <= 10; c++) {
+    for (int x : {2, 3, 5}) {
+        if (x <= c) {
+            ways[c] += ways[c - x];
+        }
+    }
+}
+\end{code}
+它會印出多少？ 錯在哪裡？ 只看 \texttt{ways[5]}，多數了哪些？
+
+\item 用二進位拆分。
+\begin{enumerate}
+\item $k = 100$ 要拆成哪幾包？
+\item 要拿 $77$ 個時，拿哪幾包？
+\item 有人把 $100$ 拆成 $1, 2, 4, 8, 16, 32, 64$。 錯在哪裡？
+\end{enumerate}
+
+\item 估計下列情況的時間或記憶體。
+\begin{enumerate}
+\item 範例~\ref{ex:treasurer} 如果改用兩維的 \texttt{long long} 表，大約要多少
+記憶體？
+\item 範例~\ref{ex:prizes} 如果把每種獎品展開成 $k_i$ 件 0/1 物品，最壞情況要
+幾次更新？ 用二進位拆分呢？
+\end{enumerate}
+
+\item 0/1 背包要求剛好裝滿，有人用 \texttt{-1} 代表湊不出來，寫成
+\begin{code}{cpp}{練習 5}
+vector<long long> best(cap + 1, -1);
+best[0] = 0;
+for (int i = 0; i < n; i++) {
+    for (int c = cap; c >= w[i]; c--) {
+        best[c] = max(best[c], best[c - w[i]] + v[i]);
+    }
+}
+\end{code}
+物品是 $(3, 4)$、$(2, 1)$，容量 $4$。 \texttt{best[4]} 應該是多少？ 這段程式算
+出多少？ 怎麼改？
+
+\item 完全背包求最大價值。 有人把兩層迴圈對調，容量在外層由小到大、物品在內層：
+\begin{code}{cpp}{練習 6}
+for (int c = 1; c <= cap; c++) {
+    for (int i = 0; i < n; i++) {
+        if (w[i] <= c) {
+            best[c] = max(best[c], best[c - w[i]] + v[i]);
+        }
+    }
+}
+\end{code}
+答案還對嗎？ 如果改成 0/1 背包，能不能只把外層改成由大到小？ 各說明理由。
+\end{drills}
+
+\section{實作練習}
+\label{sec:knap-practice}
+
+下面是 Aki-Judge 上和本章相關的題目，依小節分組。 難度分四階：暖身是直接套用
+本章的寫法；基本要自己認出容量和物品，或處理一個細節；實戰的題敘比較長，要先把
+題目轉換成本章的形狀；挑戰會和其他章的技巧合在一起。
+
+\begin{center}
+\begin{tabular}{llc}
+\toprule
+小節 & 題目 & 難度 \\
+\midrule
+0/1 背包與剛好裝滿 & \akiref{filling-the-lunch-broadcast-exactly}{剛好填滿的午休廣播時段} & 暖身 \\
+ & \akiref{fewest-stamps-for-exact-postage}{剛好貼滿郵資的最少郵票張數} & 暖身 \\
+ & \akiref{how-big-a-backpack-is-enough}{要多大的背包才夠} & 基本 \\
+ & \akiref{club-shopping-with-one-half-price-coupon}{一張半價券的福利社採購} & 實戰 \\
+ & \akiref{how-many-best-packings}{最佳裝法有幾種} & 實戰 \\
+ & \akiref{gear-that-must-come-along}{哪些裝備一定得帶} & 挑戰 \\
+ & \akiref{the-cheapest-one-is-free}{最便宜那件免費} & 挑戰 \\
+\midrule
+完全背包 & \akiref{sticker-counts-you-cannot-buy}{買不到的貼紙張數} & 暖身 \\
+ & \akiref{the-no-change-pay-station}{不找零的繳費機} & 基本 \\
+ & \akiref{listing-the-fewest-stamps}{列出最少郵票的貼法} & 基本 \\
+ & \akiref{cheer-routine-without-repeats}{不重複招式的啦啦隊編排} & 實戰 \\
+ & \akiref{cutting-a-plank-with-saw-kerf}{考慮鋸縫的木條裁切} & 實戰 \\
+ & \akiref{supply-bundles-for-freshman-orientation}{迎新物資的補給包} & 挑戰 \\
+\midrule
+子集合和 & \akiref{two-luggage-holds}{兩個行李艙裝得下嗎} & 基本 \\
+ & \akiref{how-light-can-the-heaviest-box-be}{最重那箱可以多輕} & 實戰 \\
+ & \akiref{fewest-moves-to-balance-two-teams}{最少移動幾人讓兩隊力量相等} & 實戰 \\
+ & \akiref{rivals-and-partners-in-the-tug-of-war}{有恩怨也有搭檔的分組} & 挑戰 \\
+\midrule
+變形 & \akiref{one-plan-per-club}{每個社團恰選一個方案} & 暖身 \\
+ & \akiref{camp-lunches-with-one-free-voucher}{營隊午餐與一張兌換券} & 基本 \\
+ & \akiref{toppings-within-the-sweetness-range}{甜度剛好落在區間的配料} & 實戰 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+本章的三題例題也在 Aki-Judge 上，讀完各節之後可以先自己寫一次再對照。
+
+\section{讀完你應該會}
+\label{sec:knap-checklist}
+
+\begin{itemize}
+\item 看到「容量有限、挑一些東西」的題目，能說出容量是哪個量、每樣東西能拿幾
+次，並估計 $n \times W$ 來不來得及。
+\item 能寫出 0/1 背包的兩維表格，並從表格往回找出選了哪幾件。
+\item 能寫出 0/1 和完全背包的一維寫法，並用一件物品的小例子說明迴圈方向為什
+麼不能反。
+\item 能依「不超過」或「剛好」設定初始值，用 \texttt{-1} 或 \texttt{NEG} 標出
+湊不出來的容量，並在轉移時避開它們。
+\item 數方法數時，能依題目對「不同」的定義，決定物品和容量哪一層在外面；遇到
+有數量上限的物品，能用二進位拆分改成 0/1 背包。
+\end{itemize}
+
+\textbf{延伸閱讀}（書末會整理完整的參考資料）
+
+\begin{itemize}
+\item Antti Laaksonen，\textit{Competitive Programmer's Handbook}，第 7 章的
+knapsack 一節：用子集合和介紹背包，篇幅很短。
+\item 劉汝佳，《算法競賽入門經典》第 2 版，9.3.2 節：0/1 背包和滾動陣列，並
+討論壓成一維之後為什麼不好印出選法。
+\item Steven Halim 等，\textit{Competitive Programming 4}，Book 1，3.5.2 節：
+0/1 背包和找零錢的記憶化寫法，附有大量分類好的練習題。
+\end{itemize}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item
+\begin{enumerate}
+\item 一開始全是 $0$。
+\begin{center}
+\begin{tabular}{l|ccccccc}
+\toprule
+$c$ & 0 & 1 & 2 & 3 & 4 & 5 & 6 \\
+\midrule
+$(3, 5)$ 之後 & 0 & 0 & 0 & 5 & 5 & 5 & 5 \\
+$(1, 2)$ 之後 & 0 & 2 & 2 & 5 & 7 & 7 & 7 \\
+$(4, 7)$ 之後 & 0 & 2 & 2 & 5 & 7 & 9 & 9 \\
+$(2, 3)$ 之後 & 0 & 2 & 3 & 5 & 7 & 9 & 10 \\
+\bottomrule
+\end{tabular}
+\end{center}
+答案 $10$：$(4, 7)$ 加 $(2, 3)$，或 $(3, 5)$、$(1, 2)$、$(2, 3)$ 三件，都是
+重量 $6$、價值 $10$。
+\item $12$，等於六份重量 $1$、價值 $2$ 的物品。 由小到大時每件都可以重複拿，
+算出的是完全背包的答案；在完全背包裡，價值除以重量最高的是 $(1, 2)$，裝滿六份
+最好。
+\end{enumerate}
+
+\item 印出 $14$。 容量在外層、物品在內層，算的是「最後一個換的是哪一種」，先後
+不同的換法被分開數，得到的是排列數；組合數是 $4$。 \texttt{ways[5]} 會是 $3$：
+$5$、$2 + 3$、$3 + 2$，其中 $2 + 3$ 和 $3 + 2$ 是同一種組合，多數了一次。 把兩
+層迴圈對調，物品在外層，就是範例~\ref{ex:count-ways} 的 \texttt{combo}。
+
+\item
+\begin{enumerate}
+\item $1, 2, 4, 8, 16, 32, 37$。 前六包加起來是 $63$，剩下 $100 - 63 = 37$。
+\item $77 \ge 64$，先拿 $37$ 那一包，剩下 $40 = 32 + 8$。 拿 $37$、$32$、$8$
+三包。
+\item 七包加起來是 $127$，可以拿到 $101$ 到 $127$ 個，超過庫存。 最後一包要放
+剩下的數量，不能繼續加倍。
+\end{enumerate}
+
+\item
+\begin{enumerate}
+\item $(200 + 1) \times (10^5 + 1)$ 格，每格 $8$ 位元組，大約 $160$ MB。 一維只
+要 $800$ KB。
+\item 展開後物品數是 $\sum k_i \le 200 \times 1000 = 2 \times 10^5$，每件掃一次
+$10^5$ 的容量，最壞 $2 \times 10^{10}$ 次。 二進位拆分後每種最多 $10$ 包
+（$1 + 2 + \cdots + 256 = 511$，第十包是剩下的 $489$），共 $2000$ 包，
+$2 \times 10^8$ 次。
+\end{enumerate}
+
+\item 應該是 $-1$：$3 + 2 = 5$，兩件都湊不出 $4$。 這段程式算出 $3$。 處理
+$(3, 4)$ 時 \texttt{best[3] = 4}，\texttt{best[4]} 從 \texttt{best[1] + 4}
+得到 $-1 + 4 = 3$；處理 $(2, 1)$ 時 \texttt{best[2]} 還是 $-1$，\texttt{best[4]} 從
+\texttt{best[2] + 1} $= 0$ 和自己的 $3$ 比，留下 $3$。 這個 $3$ 是從湊不出來的 \texttt{best[1]}
+來的假答案。 轉移前加上 \texttt{if (best[c - w[i]] != -1)}。
+
+\item 第一個問題：還是對的。 算 \texttt{best[c]} 時，比 $c$ 小的格子都已經考慮
+過所有物品、是最終的答案，內層對每一種「最後放的是哪一種」都試一次，正好是完全
+背包的轉移。 求最大值時同一種放法被看到幾次都沒關係，所以和物品在外層的答案一
+樣；求方法數時才會多數（練習第~2~題）。
+
+第二個問題：不行。 外層由大到小時，\texttt{best[c - w[i]]} 還沒算到，存的都是
+初始的 $0$，算出的只是「放一件」的最好結果。 例如物品 $(1, 1)$、$(1, 1)$、容量
+$2$，正確答案是 $2$，這樣寫得到 $1$。 0/1 背包的一維寫法需要「每處理完一件，
+整列前進一次」，物品一定要在外層。
+\end{enumerate}

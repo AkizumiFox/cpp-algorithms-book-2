@@ -1,0 +1,1423 @@
+\chapter{樹形 DP}
+\label{ch:treedp}
+
+% 本章的圖共用的樣式，和第 1 本第 13 章同名、同定義（那一章不在這本書裡，所以這裡再定義一次）
+\tikzset{
+    tv/.style={circle, draw=black!60, thick, minimum size=0.72cm, inner sep=0pt, font=\small},
+    tvhl/.style={tv, draw=memStroke, fill=memFill},
+    tvalt/.style={tv, draw=optStroke, fill=optFill},
+    te/.style={thick, draw=black!60},
+    tehl/.style={very thick, draw=memStroke},
+    tlbl/.style={font=\scriptsize, text=black!60},
+}
+
+週末市集在一片廣場上舉辦，廣場的走道連成一棵樹，每個路口可以擺一個攤位，主辦
+單位估過每個路口擺攤的營收。 規定只有一條：相鄰的兩個路口不能都擺，不然兩攤會
+搶同一批客人，走道也會擠成一團。 擺哪些路口，營收加起來最多？ 往下讀之前，先想
+一個挑法，例如「營收高的先擺，擺了就把相鄰的路口劃掉」，或是「從入口算起，一層
+擺、一層不擺」，再想想它會不會出錯。
+
+走道網是一棵樹。 《C++ 演算法解題 1：APCS 實作題核心》（以下簡稱第 1 本）第~13~章已經在樹上由下往上算過子樹大小、子樹和、高度，每
+個點的答案都由子節點的答案組成；章末預告過，這就是把第 1 本第~9~章的動態規劃搬到樹
+上。 這一章接著往下做：每個點像第 1 本第~9~章「選或不選」那樣存好幾個狀
+態，再用子節點的狀態合併出自己的。
+
+這一章依序講四件事。 先說明為什麼子樹之間可以分開算，以及合併的寫法；接著把
+「選或不選」的兩個狀態用到樹上，解掉上面的擺攤問題；再來是樹上的路徑，以第 1 本第~13
+~章的直徑為例，改用動態規劃的算法；最後是\textbf{換根}（rerooting），一次算出
+「每個點當根」時的答案，例如每個點到其他所有點的距離和。 章末預告一種狀態是一
+整張表的樹形 DP。
+
+這一章不教新的語法，也不重講第 1 本第~13~章的存法和走訪：從根做一次 BFS 得到
+\texttt{order} 和 \texttt{parent}，倒著看 \texttt{order} 由下往上算（第 1 本第~13~章
+13.3 節），這一章每支程式都直接沿用。
+
+\section{每個點的狀態由子節點合併而來}
+\label{sec:tdp-merge}
+
+第 1 本第~13~章的子樹大小是 $\mathit{sz}(v) = 1 + $ 子節點的 $\mathit{sz}$ 加起來。 用第 1 本第
+~9~章的四件事來看它：
+
+\begin{itemize}
+\item \textbf{狀態}：$\mathit{sz}(v)$ 是「以 $v$ 為根的子樹有幾個點」。 樹形 DP
+的狀態幾乎都長這樣：只看 $v$ 的子樹，把題目的問題在這棵子樹上問一次。 常常還要
+多記一點 $v$ 自己的資訊，例如 $v$ 選了沒有、塗了什麼顏色。
+\item \textbf{轉移}：用 $v$ 自己的值，加上每個子節點的狀態，合併出 $v$ 的狀態。
+\item \textbf{初始值}：只有 $v$ 自己、還沒合併任何子節點時的值。 葉子沒有子節點，
+它的狀態就是初始值。
+\item \textbf{計算順序}：子節點要先算完，也就是倒著看 BFS 順序。
+\end{itemize}
+
+答案通常是根的狀態；路徑之類的問題，答案可能落在任何一個點上，要在途中取最大
+值，第~\ref{sec:tdp-path}~節會遇到。
+
+\subsection{為什麼子樹可以分開算}
+
+樹形 DP 能成立，靠的是樹的一個性質：$v$ 的各個子樹之間沒有邊。 拿掉 $v$，它
+的每個子樹各自成為一塊，兩個子樹裡的點要互相到達，一定得經過 $v$（第 1 本第~13~章：
+樹上兩點只有一條路徑）。
+
+\begin{center}
+\begin{tikzpicture}[x=1cm, y=1cm]
+\node[tvhl] (v) at (3,2.4) {$v$};
+\foreach \x/\c in {0.6/1, 3/2, 5.4/3} {
+    \node[tv] (c\c) at (\x,1.2) {$c_\c$};
+    \draw[te] (v) -- (c\c);
+    \draw[black!50] (c\c.south) -- (\x-0.7,-0.4) -- (\x+0.7,-0.4) -- cycle;
+}
+\node[tlbl] at (1.8,-0.1) {沒有邊};
+\node[tlbl] at (4.2,-0.1) {沒有邊};
+\end{tikzpicture}
+\diagcaption{$v$ 的三個子樹。 子樹和子樹之間沒有邊，它們只透過 $v$ 相連。}
+\label{fig:tdp-indep}
+\end{center}
+
+所以只要 $v$ 的狀態定了（例如「$v$ 擺攤」），每個子樹怎麼選，只受 $v$ 影響，
+不受其他子樹影響。 每個子樹各自挑最好的，再把結果合起來，就是 $v$ 在這個狀態
+下最好的結果。 有環的圖沒有這個性質：兩個「子樹」之間可能另有一條邊，一邊的選
+擇會牽動另一邊，就不能分開算。
+
+\subsection{一次合併一個子節點}
+
+第 1 本第~13~章由下往上的迴圈，是每個點把自己的值「交給」父節點一次。 樹形 DP 照用
+這個寫法，只是交的東西換成幾個狀態，合併的方式由題目決定：
+
+\begin{code}{cpp}{樹形 DP 的骨架}
+// 先把每個點的狀態設成初始值（只有自己）
+for (int i = n - 1; i >= 1; i--) {      // 倒著看，跳過根 order[0]
+    int v = order[i], p = parent[v];
+    // 輪到 v 時，v 的子節點都已經交過，v 的狀態是最終的
+    // 把 v 的狀態合併進 p 的狀態
+}
+\end{code}
+
+一次併一個子節點，要求合併的方式可以一個一個累積：加總、取最大、取最小都可以，
+先併哪一個子節點都一樣。 第~\ref{sec:tdp-preview}~節的狀態是一整張表，合併就
+沒有這麼便宜，要另外想辦法。
+
+\section{選或不選}
+\label{sec:tdp-mis}
+
+回到章首的市集。 每個路口的營收 $w_v$ 標在點旁邊，相鄰的兩個路口不能都擺。 在一張圖上挑一些點、任兩個挑到的點都不相鄰，這樣的點集合叫
+\textbf{獨立集}（independent set）；章首的問題是挑出營收總和最大的獨立集，叫
+\textbf{最大權獨立集}。 下圖是一個有八個路口的市集，入口是 $1$：
+
+\begin{center}
+\begin{tikzpicture}[x=1.1cm, y=1.0cm]
+\node[tvhl] (1) at (3,3) {1};
+\node[tv] (2) at (1.5,2) {2};
+\node[tv] (3) at (4.5,2) {3};
+\node[tvhl] (4) at (0.8,1) {4};
+\node[tvhl] (5) at (2.2,1) {5};
+\node[tv] (6) at (4.5,1) {6};
+\node[tvhl] (7) at (3.8,0) {7};
+\node[tvhl] (8) at (5.2,0) {8};
+\foreach \a/\b in {1/2, 1/3, 2/4, 2/5, 3/6, 6/7, 6/8} {\draw[te] (\a) -- (\b);}
+\foreach \v/\w in {1/6, 3/2, 6/5, 8/4} {\node[tlbl, right] at (\v.east) {$w = \w$};}
+\foreach \v/\w in {2/5, 4/3, 7/2} {\node[tlbl, left] at (\v.west) {$w = \w$};}
+\node[tlbl, below] at (5.south) {$w = 4$};
+\end{tikzpicture}
+\diagcaption{八個路口的走道網，旁邊是擺攤的營收（萬元）。 橘色的 $1, 4, 5, 7, 8$
+是最好的擺法，營收 $19$。}
+\label{fig:tdp-mis}
+\end{center}
+
+\subsection{兩種直覺的挑法都會錯}
+
+最直接的做法是暴力解：每個路口擺或不擺，共 $2^n$ 種，挑出合法的，取營收最大。
+$n = 30$ 就超過十億種，只能拿來對拍。
+
+章首的兩種挑法，在這張圖上都不是最好的：
+
+\begin{itemize}
+\item \textbf{營收高的先擺}：先擺 $1$（$6$），劃掉 $2$、$3$；再擺 $6$（$5$），
+劃掉 $7$、$8$；剩下 $4$、$5$ 都能擺。 總共 $6 + 5 + 3 + 4 = 18$。
+\item \textbf{一層擺、一層不擺}：深度是偶數的 $1, 4, 5, 6$ 共 $18$，奇數的
+$2, 3, 7, 8$ 共 $13$，取大的 $18$。
+\end{itemize}
+
+最好的是 $1, 4, 5, 7, 8$，營收 $19$：$6$ 的營收雖然高，不擺它、改擺它底下的
+$7$、$8$ 反而多一萬。 一個路口該不該擺，要看它底下的路口能拿多少，只看眼前的營
+收判斷不了。
+
+\subsection{兩個狀態}
+
+先試一個狀態：$\mathit{best}(v)$ 是「$v$ 的子樹裡，營收最多是多少」。 想用子節
+點的 $\mathit{best}$ 算 $v$ 時會卡住：$v$ 能不能擺，要看子節點有沒有擺，而
+$\mathit{best}(c)$ 把「$c$ 有擺」和「$c$ 沒擺」兩種情況混在一起了。 這和第 1 本第~9
+~章招牌燈的第一步一樣，缺的資訊放進狀態：
+
+\begin{itemize}
+\item $\mathit{in}(v)$：$v$ \textbf{擺}攤時，$v$ 的子樹裡最大的營收。
+\item $\mathit{out}(v)$：$v$ \textbf{不擺}時，$v$ 的子樹裡最大的營收。
+\end{itemize}
+
+轉移看 $v$ 自己。 $v$ 擺的話，每個子節點都不能擺；$v$ 不擺的話，每個子節點擺不
+擺都可以，各自挑比較好的那一種。 由第~\ref{sec:tdp-merge}~節，各個子樹可以分開
+挑，所以
+\[
+\mathit{in}(v) = w_v + \sum_{c} \mathit{out}(c),\qquad
+\mathit{out}(v) = \sum_{c} \max\bigl(\mathit{in}(c), \mathit{out}(c)\bigr),
+\]
+其中 $c$ 跑遍 $v$ 的所有子節點。 初始值是只有自己：$\mathit{in}(v) = w_v$、
+$\mathit{out}(v) = 0$，葉子就停在這裡。 答案是 $\max(\mathit{in}(r),
+\mathit{out}(r))$，$r$ 是根。
+
+和第 1 本第~9~章對照：一排燈是每盞燈只有一個「下一盞」，樹是每個點有好幾個子節點，轉
+移從「看前一格」變成「把所有子節點加起來」，其他完全一樣。
+
+\subsection{由上往下找出擺在哪裡}
+
+只要營收的話，算到根就結束了。 想知道擺在哪些路口，再順著 BFS 順序從根往下決定一次：
+根選 $\mathit{in}$ 和 $\mathit{out}$ 裡大的那一種；之後每個點，如果父節點擺了，
+它一定不擺；父節點沒擺，它就選自己 $\mathit{in}$ 和 $\mathit{out}$ 裡大的那一
+種。 這和 $\mathit{out}(v)$ 的式子「每個子節點各自挑比較好的」是同一件事，只是倒
+過來做。 父節點的決定要先知道，所以這一趟是由上往下。
+
+\begin{example}[label=ex:tdp-mis]{cpp}{(market.cpp) 市集要擺哪些路口}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n;
+    cin >> n;
+    vector<long long> w(n + 1);
+    for (int v = 1; v <= n; v++) {
+        cin >> w[v];
+    }
+    vector<vector<int>> adj(n + 1);
+    for (int i = 0; i < n - 1; i++) {
+        int u, v;
+        cin >> u >> v;
+        adj[u].push_back(v);
+        adj[v].push_back(u);
+    }
+
+    // 以 1 為根：BFS 順序與父節點（第 1 本第 13 章）
+    vector<int> parent(n + 1, 0);
+    vector<int> order = {1};
+    for (int i = 0; i < (int)order.size(); i++) {
+        int u = order[i];
+        for (int v : adj[u]) {
+            if (v != parent[u]) {
+                parent[v] = u;
+                order.push_back(v);
+            }
+        }
+    }
+
+    // in[v]：v 擺攤，子樹裡最大營收；out[v]：v 不擺，子樹裡最大營收
+    vector<long long> in(n + 1), out(n + 1, 0);
+    for (int v = 1; v <= n; v++) {
+        in[v] = w[v];                       // 還沒合併任何子節點
+    }
+    for (int i = n - 1; i >= 1; i--) {      // 倒著看，跳過根
+        int v = order[i], p = parent[v];
+        in[p] += out[v];                    // p 擺：v 一定不擺
+        out[p] += max(in[v], out[v]);       // p 不擺：v 選比較好的
+    }
+    cout << max(in[1], out[1]) << '\n';
+
+    // 順著 BFS 順序，由上往下決定擺哪些
+    vector<bool> go(n + 1, false);
+    for (int v : order) {
+        if (v == 1) {
+            go[v] = in[v] > out[v];
+        } else if (go[parent[v]]) {
+            go[v] = false;                  // 父節點擺了，自己不能擺
+        } else {
+            go[v] = in[v] > out[v];
+        }
+    }
+    bool first = true;
+    for (int v = 1; v <= n; v++) {
+        if (go[v]) {
+            cout << (first ? "" : " ") << v;
+            first = false;
+        }
+    }
+    cout << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+8 \\
+6 5 2 3 4 5 2 4 \\
+1 2 \\
+1 3 \\
+2 4 \\
+2 5 \\
+3 6 \\
+6 7 \\
+6 8 \\
+}{
+19 \\
+1 4 5 7 8 \\
+}
+
+BFS 順序是 $1, 2, 3, 4, 5, 6, 7, 8$。 倒著看的迴圈，每一步之後父節點的兩個值：
+
+\begin{center}
+\begin{tabular}{cccccc}
+\toprule
+\texttt{i} & $v$ & $p$ & 交上去的 & $\mathit{in}(p)$ & $\mathit{out}(p)$ \\
+\midrule
+7 & 8 & 6 & $\mathit{out} = 0$，$\max = 4$ & 5 & 4 \\
+6 & 7 & 6 & $\mathit{out} = 0$，$\max = 2$ & 5 & 6 \\
+5 & 6 & 3 & $\mathit{out} = 6$，$\max = 6$ & 8 & 6 \\
+4 & 5 & 2 & $\mathit{out} = 0$，$\max = 4$ & 5 & 4 \\
+3 & 4 & 2 & $\mathit{out} = 0$，$\max = 3$ & 5 & 7 \\
+2 & 3 & 1 & $\mathit{out} = 6$，$\max = 8$ & 12 & 8 \\
+1 & 2 & 1 & $\mathit{out} = 7$，$\max = 7$ & 19 & 15 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+$6$ 的兩個值是 $\mathit{in} = 5$、$\mathit{out} = 6$：不擺比較好，這就是「營收高
+的先擺」錯的地方。 由上往下時，$1$ 擺（$19 > 15$），所以 $2$、$3$ 不擺；$2$ 沒
+擺，$4$、$5$ 各自比較，都是擺比較好；$3$ 沒擺，$6$ 選 $\mathit{out}$，不擺；$7$、
+$8$ 都擺。
+
+\begin{itemize}
+\item \texttt{in} 和 \texttt{out} 一開始就放好初始值，每個子節點交一次就加一項，
+和第 1 本第~13~章累加 \texttt{sz} 的寫法一樣。
+\item \texttt{in[v] > out[v]} 相等時選不擺，營收一樣，只是擺法可能和別的寫
+法不同。 題目如果要求印出特定的一種（例如攤位最少），相等時怎麼選要照題目的規定。
+\item 營收到 $10^9$、路口到 $2 \times 10^5$ 個時，總和會超過 \texttt{int}，所以用
+\texttt{long long}。
+\end{itemize}
+
+兩趟都是 $O(n)$。 同樣的模型也出現在別的地方：樹狀的通訊線路上挑幾站裝中繼
+器，相鄰兩站同時裝會互相干擾；一條樹狀的配送路線上挑幾個點設取貨櫃，相鄰的兩點
+設了會互相分走客人。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{$v$ 不擺，就以為子節點一定要擺}：把 \texttt{out[p] += max(in[v],
+out[v]);} 寫成 \texttt{out[p] += in[v];}。 範例的輸入第一行印出 \texttt{18}。
+「不能都擺」只限制了兩個都擺，沒有規定至少要擺一個；$v$ 不擺時，子節點不擺也可
+能比較好，例如 $6$。
+\item \textbf{由上往下時沒看父節點}：每個點都只比較自己的 \texttt{in} 和
+\texttt{out}。 範例的第二行印出 \texttt{1 3 4 5 7 8}，$1$ 和 $3$ 相鄰卻都擺了。
+$\mathit{in}(3) = 8$ 比 $\mathit{out}(3) = 6$ 大，是說「只看 $3$ 的子樹的話，$3$
+擺比較好」；可是 $1$ 已經擺了，$3$ 根本沒有選擇。
+\end{itemize}
+
+\subsection{例題：班服顏色的搭配}
+\label{sec:tdp-ex-shirts}
+
+\textbf{題意}（\akiref{class-shirt-colors}{班服顏色的搭配}）
+
+\begin{itemize}
+\item $n$ 個班之間有 $n - 1$ 組合作關係，形成一棵樹。 每個班的班服選白色或紅色，
+第 $i$ 班選白色的成本是 $a_i$，紅色是 $b_i$。
+\item 一組合作關係 $(u, v, c)$ 兩端的顏色不同時，要多付協調費 $c$。
+\item 求班服成本加上協調費的最小總和。 $n \le 2 \times 10^5$，$a_i, b_i, c$ 都
+到 $10^9$。
+\end{itemize}
+
+例如三個班，$1$ 班白 $5$、紅 $4$，$2$、$3$ 班都是白 $1$、紅 $9$，$1$ 班和另外
+兩班各有一組協調費 $10$ 的合作關係。 每班各自選便宜的顏色是紅、白、白，班服
+$6$ 元，協調費 $20$ 元，共 $26$。 讓 $1$ 班也穿白色，班服多 $1$ 元，協調費全省
+下來，共 $7$ 元，這才是最小的。
+
+\textbf{想法}
+
+暴力解是枚舉 $2^n$ 種塗法，$n \le 20$ 時可以用來對拍。 上面的例子已經說明了每
+班各自選便宜的會錯：一個班的顏色會影響和鄰居之間要不要付協調費。
+
+這題的形狀和市集一樣，每個點有兩種選擇，只是限制從「相鄰的不能都選」變成「相鄰
+的不一樣要付錢」。 狀態照樣分兩個：
+
+\begin{itemize}
+\item $\mathit{white}(v)$：$v$ 穿白色時，$v$ 的子樹裡最少要花多少（子樹裡的班服，
+加上子樹裡合作關係的協調費）。
+\item $\mathit{red}(v)$：$v$ 穿紅色時，同上。
+\end{itemize}
+
+$v$ 和子節點 $c$ 之間那組合作關係的協調費記作 $f_c$。 $v$ 穿白色時，子節點 $c$
+穿白色，花 $\mathit{white}(c)$；穿紅色，花 $\mathit{red}(c) + f_c$。 兩者取小的，
+每個子節點各自決定：
+\[
+\mathit{white}(v) = a_v + \sum_c \min\bigl(\mathit{white}(c),\ \mathit{red}(c) + f_c\bigr),
+\]
+$\mathit{red}(v)$ 對稱，把 $a_v$ 換成 $b_v$、白和紅對調。 答案是根的兩個值取小
+的。
+
+每組合作關係只在「子節點交給父節點」那一刻算一次。 定根時把協調費存在子節點那
+一端（\texttt{fee[v]} 是 $v$ 和父節點之間的協調費），合併時就不會重複算，也不會
+漏算。
+
+用題目的範例 1 走一次。 以 $1$ 為根，$1$ 的子節點是 $2$、$3$，$2$ 的子節點是 $4$：
+
+\begin{center}
+\begin{tabular}{ccccccc}
+\toprule
+$v$ & $p$ & \texttt{fee[v]} & 交上去的白 & 交上去的紅 & $\mathit{white}(p)$ & $\mathit{red}(p)$ \\
+\midrule
+ & & & & & \multicolumn{2}{c}{初始：$1$：$(3, 5)$，$2$：$(4, 1)$} \\
+4 & 2 & 1 & $\min(7, 2 + 1) = 3$ & $\min(2, 7 + 1) = 2$ & 7 & 3 \\
+3 & 1 & 2 & $\min(2, 6 + 2) = 2$ & $\min(6, 2 + 2) = 4$ & 5 & 9 \\
+2 & 1 & 3 & $\min(7, 3 + 3) = 6$ & $\min(3, 7 + 3) = 3$ & 11 & 12 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+答案是 $\min(11, 12) = 11$。 第一列：$4$ 班自己穿白要 $7$，穿紅只要 $2$；$2$ 班穿
+白色時，讓 $4$ 班穿紅色再付 $1$ 元協調費，比較划算。
+
+同樣的模型也出現在別的地方：一棟大樓的每個樓層選兩家網路業者之一，相連的樓層
+用不同業者要加裝轉接設備；一個專案的各個模組選兩種框架之一，互相呼叫的模組框架
+不同就要多寫轉換層。 「每個點二選一，相連的不一樣要付代價」，在樹上都可以這樣
+做。
+
+\textbf{程式}
+
+\begin{example}[label=ex:tdp-shirts]{cpp}{(shirts.cpp) 班服顏色的搭配}
+#include <algorithm>
+#include <iostream>
+#include <utility>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n;
+    cin >> n;
+    // white[v]、red[v]：v 穿白、穿紅時，v 的子樹裡的最小成本
+    vector<long long> white(n + 1), red(n + 1);
+    for (int v = 1; v <= n; v++) {
+        cin >> white[v] >> red[v];          // 先放自己的班服成本
+    }
+    vector<vector<pair<int, long long>>> adj(n + 1);   // （鄰居, 協調費）
+    for (int i = 0; i < n - 1; i++) {
+        int u, v;
+        long long c;
+        cin >> u >> v >> c;
+        adj[u].push_back({v, c});
+        adj[v].push_back({u, c});
+    }
+
+    // 以 1 為根；fee[v] 是 v 和父節點之間那組合作關係的協調費
+    vector<int> parent(n + 1, 0);
+    vector<long long> fee(n + 1, 0);
+    vector<int> order = {1};
+    for (int i = 0; i < (int)order.size(); i++) {
+        int u = order[i];
+        for (auto [v, c] : adj[u]) {
+            if (v != parent[u]) {
+                parent[v] = u;
+                fee[v] = c;
+                order.push_back(v);
+            }
+        }
+    }
+
+    for (int i = n - 1; i >= 1; i--) {
+        int v = order[i], p = parent[v];
+        // 同色不用付，異色付一次協調費
+        white[p] += min(white[v], red[v] + fee[v]);
+        red[p] += min(red[v], white[v] + fee[v]);
+    }
+    cout << min(white[1], red[1]) << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 \\
+3 5 \\
+4 1 \\
+2 6 \\
+7 2 \\
+1 2 3 \\
+1 3 2 \\
+2 4 1 \\
+}{
+11 \\
+}
+
+\begin{itemize}
+\item \texttt{white} 和 \texttt{red} 讀進來時就是自己的班服成本，也就是初始值，
+不用另外開陣列存 $a_i$、$b_i$。
+\item $n = 2 \times 10^5$、每項成本 $10^9$ 時總和約 $2 \times 10^{14}$，要用
+\texttt{long long}。
+\end{itemize}
+
+\textbf{複雜度}
+
+一次 BFS、一次倒著合併，都是 $O(n)$。 最大的測試資料在本書測試的環境下，CPU 時
+間不到 $0.1$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{每班各自選便宜的}：先替每班選便宜的顏色，再把兩端不同色的協調費加
+上去。 題目的範例 2（就是上面三個班的例子）印出 \texttt{26}，正確答案是
+\texttt{7}。 範例 1 剛好是對的，只用範例 1 測試看不出來。
+\item \textbf{協調費拿錯一條}：合併時寫成 \texttt{fee[p]}，用到的是 $p$ 和它的父
+節點之間的協調費。 範例 1 印出 \texttt{8}，範例 2 印出 \texttt{6}。 根的
+\texttt{fee} 是 $0$，所以和根相連的合作關係都變成免費。
+\item \textbf{用 \texttt{int}}：把程式裡的 \texttt{long long} 全改成
+\texttt{int}。 輸入 $n = 2 \times 10^5$ 的一條鏈，每班兩種顏色都是 $10^9$、協調
+費都是 $1$，正確答案是 \texttt{200000000000000}，在本書測試的環境下印出
+\texttt{552894464}，加了 \texttt{-Wall -Wextra} 也沒有警告。
+\end{itemize}
+
+\subsection{什麼時候用、什麼時候不能用}
+
+\begin{itemize}
+\item 每個點有幾種選擇（選或不選、幾種顏色），而限制只發生在\textbf{相鄰}的兩點
+之間：把「$v$ 選了哪一種」放進狀態，每種選擇各記一個值。 選擇有 $k$ 種時，每個子
+節點要看 $k \times k$ 種組合，$k$ 小的時候沒有問題。
+\item 限制牽涉到距離 $2$ 以上的點，例如「祖父和孫子不能都選」，狀態要多記一層。
+\item 同樣的問題放在一般的圖上（有環），子樹之間不再互相獨立，這套做法就不能用。
+一般圖上的最大獨立集沒有已知的快速算法，只能靠範圍小時的暴力解。
+\end{itemize}
+
+\begin{apcsnote}
+實作題常常把測試資料分成幾個子題，第一個子題的 $n$ 很小（例如 $n \le 20$）。 樹
+形 DP 的題目，$2^n$ 的暴力枚舉通常就能拿下這個子題，而且它正好是對拍用的程式。
+先寫暴力解交一次，再寫樹形 DP，兩支程式在小的隨機樹上比對。
+\end{apcsnote}
+
+\section{樹上的路徑}
+\label{sec:tdp-path}
+
+第 1 本第~13~章用兩次走訪求樹直徑，條件是邊長不能是負的。 這一節換一個想法：用樹形
+DP 求最長的路徑。 它比兩次走訪多寫幾行，但邊長是負的也能用，題目對路徑多加條件
+時也比較容易改。
+
+\subsection{每條路徑都有一個最高點}
+
+以 $1$ 為根。 樹上任何一條路徑，經過的點裡深度最小的只有一個，叫它這條路徑的
+\textbf{最高點}。 從最高點 $v$ 出發，路徑往兩邊走，兩邊都只能往下走（往上就會碰
+到比 $v$ 更高的點）；兩邊走進的是 $v$ 的兩個\textbf{不同}的子節點，也可能某一邊
+是空的，路徑就停在 $v$。
+
+所以「以 $v$ 為最高點的最長路徑」等於：從 $v$ 往下、經過不同子節點的兩條鏈，最長
+和第二長的加起來。 每個點記兩個數：
+
+\begin{itemize}
+\item $\mathit{top}_1(v)$：從 $v$ 往下走的鏈，最長的有多長。
+\item $\mathit{top}_2(v)$：和最長的那條走進\textbf{不同}子節點的鏈裡，最長的有多長。
+\end{itemize}
+
+子節點 $c$ 交給 $v$ 的，是「從 $v$ 經過 $c$ 往下走的最長鏈」：$\mathit{top}_1(c)$
+加上 $v$--$c$ 這條邊的長度。 $v$ 收到之後，同時更新最大和第二大。 初始值 $\mathit{top}_1 = \mathit{top}_2 = 0$，代表「停在 $v$，不往
+下走」。 輪到 $v$ 交給父節點之前，它的子節點都交過了，這時用
+$\mathit{top}_1(v) + \mathit{top}_2(v)$ 更新答案。 所有點的這個值取最大，就是最長
+的路徑，因為每條路徑都在它的最高點被算到。
+
+\subsection{分數最高的一段步道}
+
+用一個邊長可以是負的問題試試看。 山上的步道網是一棵樹，每一段步道有一個分數：
+風景好的是正的，正在施工、又吵又髒的是負的。 要挑一段路線（不重複經過同一點），
+讓經過的步道分數總和最大；一段都不走（停在一個點）算 $0$ 分。
+
+\begin{center}
+\begin{tikzpicture}[x=1.15cm, y=1.0cm]
+\node[tv] (1) at (2,3) {1};
+\node[tv] (2) at (0.8,2) {2};
+\node[tvalt] (3) at (3.2,2) {3};
+\node[tv] (6) at (0.8,1) {6};
+\node[tvhl] (4) at (2.6,1) {4};
+\node[tvhl] (5) at (3.8,1) {5};
+\node[tvhl] (7) at (3.8,0) {7};
+\draw[te] (1) -- node[tlbl, above left] {5} (2);
+\draw[te] (2) -- node[tlbl, left] {3} (6);
+\draw[te] (1) -- node[tlbl, above right] {$-10$} (3);
+\draw[tehl] (3) -- node[tlbl, left] {7} (4);
+\draw[tehl] (3) -- node[tlbl, right] {6} (5);
+\draw[tehl] (5) -- node[tlbl, right] {2} (7);
+\end{tikzpicture}
+\diagcaption{邊上的數字是步道的分數。 最好的路線是 $4 - 3 - 5 - 7$，$15$ 分，它的最
+高點是 $3$（粉色）。}
+\label{fig:tdp-trail}
+\end{center}
+
+第 1 本第~13~章的兩次走訪在這裡會錯：從 $1$ 出發，分數最高的終點是 $6$（$5 + 3 = 8$）；
+從 $6$ 出發，最高也只有 $8$。 $-10$ 那一段把右邊的好路線擋住了，「先走到最遠的
+點」不再保證是某條最好路線的一端。 樹形 DP 不受影響：負的鏈交上去時比 $0$ 小，
+不會被選進 $\mathit{top}_1$、$\mathit{top}_2$，等於在那裡停下來。
+
+\begin{code}{cpp}{分數最高的一段步道（由下往上的部分）}
+// 以 1 為根做 BFS 時，把 v 到父節點那一段的分數存在 score[v]，
+// 寫法和 shirts.cpp 的 fee 一樣
+// top1[v]、top2[v]：從 v 往下、走進不同子節點的鏈，最高與第二高的分數
+// 初始值 0 代表「停在 v 不往下走」
+vector<long long> top1(n + 1, 0), top2(n + 1, 0);
+long long best = 0;
+for (int i = n - 1; i >= 0; i--) {
+    int v = order[i];
+    best = max(best, top1[v] + top2[v]);    // 以 v 為最高點的最好路線
+    if (i == 0) {
+        break;                              // 根沒有父節點
+    }
+    int p = parent[v];
+    long long d = top1[v] + score[v];       // 從 p 經過 v 往下的最好的鏈
+    if (d > top1[p]) {
+        top2[p] = top1[p];
+        top1[p] = d;
+    } else if (d > top2[p]) {
+        top2[p] = d;
+    }
+}
+\end{code}
+
+圖~\ref{fig:tdp-trail} 的輸入是 $n = 7$ 和六行「$u$ $v$ 分數」：\texttt{1 2 5}、
+\texttt{2 6 3}、\texttt{1 3 -10}、\texttt{3 4 7}、\texttt{3 5 6}、\texttt{5 7 2}，
+答案是 $15$。 BFS 順序是 $1, 2, 3, 6, 4, 5, 7$，倒著看：
+
+\begin{center}
+\begin{tabular}{cccccc}
+\toprule
+$v$ & $(\mathit{top}_1, \mathit{top}_2)$ & 用來更新 \texttt{best} & 交給 & 交上去的 \texttt{d} & 結果 \\
+\midrule
+7 & $(0, 0)$ & 0 & 5 & $0 + 2 = 2$ & $\mathit{top}_1(5) = 2$ \\
+5 & $(2, 0)$ & 2 & 3 & $2 + 6 = 8$ & $\mathit{top}_1(3) = 8$ \\
+4 & $(0, 0)$ & 0 & 3 & $0 + 7 = 7$ & $\mathit{top}_2(3) = 7$ \\
+6 & $(0, 0)$ & 0 & 2 & $0 + 3 = 3$ & $\mathit{top}_1(2) = 3$ \\
+3 & $(8, 7)$ & \textbf{15} & 1 & $8 - 10 = -2$ & 比 $0$ 小，不採用 \\
+2 & $(3, 0)$ & 3 & 1 & $3 + 5 = 8$ & $\mathit{top}_1(1) = 8$ \\
+1 & $(8, 0)$ & 8 & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+\item 迴圈這次跑到 \texttt{i = 0}：根也要用 $\mathit{top}_1 + \mathit{top}_2$ 更
+新答案，只是不用再往上交。
+\item 更新最大和第二大時，新的值比最大的還大，原本最大的要先降成第二大，順序不能
+寫反。
+\item 所有分數都是 $1$ 時，算的就是第 1 本第~13~章的樹直徑（邊數）。
+\end{itemize}
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{只記最大值，算兩次}：答案寫成 \texttt{2 * top1[v]}，想用「最長的鏈
+走兩次」代替兩條鏈。 上面的輸入印出 \texttt{16}：它把 $3 - 5 - 7$ 這條鏈當成兩條，可是
+兩條鏈要走進不同的子節點。
+\item \textbf{第一名換人時，沒把舊的降成第二名}：\texttt{d > top1[p]} 的時候只寫
+\texttt{top1[p] = d;}。 上面的輸入剛好先交 $8$ 再交 $7$，答案還是 \texttt{15}；把
+輸入的 \texttt{3 4 7} 和 \texttt{3 5 6} 兩行對調，$3$ 會先收到 $7$ 再收到 $8$，
+$7$ 就被丟掉，印出 \texttt{8}。 結果取決於子節點交上來的順序，範例過了不代表對。
+\end{itemize}
+
+\subsection{例題：翻過山頂的步道}
+\label{sec:tdp-ex-summit}
+
+\textbf{題意}（\akiref{over-the-summit}{翻過山頂的步道}）
+
+\begin{itemize}
+\item 山上有 $n$ 個休息點，由 $n - 1$ 段步道連成一棵樹，休息點 $i$ 的海拔是
+$h_i$，不同的點海拔可能相同。
+\item 一條翻山路線不重複經過同一點，海拔先嚴格上升到某個山頂，再嚴格下降。 只上
+升、只下降、只有一個點，都算。
+\item 求翻山路線最多經過幾個休息點。 $n \le 2 \times 10^5$，$h_i \le 10^9$。
+\end{itemize}
+
+下圖是題目的範例 1，括號裡是海拔。 最長的翻山路線是 $4 \to 2 \to 1 \to 3 \to 6$，
+海拔 $2, 7, 5, 4, 1$，山頂是 $2$，經過 $5$ 個點。 $3$ 和 $7$ 一樣高，不能接在一
+起。
+
+\begin{center}
+\begin{tikzpicture}[x=1.15cm, y=1.0cm]
+\node[tvhl] (1) at (3,3) {1};
+\node[tvalt] (2) at (1.5,2) {2};
+\node[tvhl] (3) at (4.5,2) {3};
+\node[tvhl] (4) at (0.8,1) {4};
+\node[tv] (5) at (2.2,1) {5};
+\node[tvhl] (6) at (3.8,1) {6};
+\node[tv] (7) at (5.2,1) {7};
+\draw[tehl] (1) -- (2);
+\draw[tehl] (1) -- (3);
+\draw[tehl] (2) -- (4);
+\draw[te] (2) -- (5);
+\draw[tehl] (3) -- (6);
+\draw[te] (3) -- (7);
+\foreach \v/\h in {1/5, 3/4} {\node[tlbl, right] at (\v.east) {(\h)};}
+\node[tlbl, left] at (2.west) {(7)};
+\foreach \v/\h in {4/2, 5/6, 6/1, 7/4} {\node[tlbl, below] at (\v.south) {(\h)};}
+\end{tikzpicture}
+\diagcaption{範例 1。 粉色的 $2$ 是山頂，橘色的路線從 $2$ 往兩邊下降：一邊到 $4$，
+另一邊經過父節點 $1$ 再到 $3$、$6$。}
+\label{fig:tdp-summit}
+\end{center}
+
+\textbf{想法}
+
+最直接的做法：從每個點出發往外走，帶著「還在上升」或「已經開始下降」的狀態，試
+遍所有走法。 一條長長的山脊上，每個起點都可能走 $O(n)$ 步，總共 $O(n^2)$，$n =
+2 \times 10^5$ 時來不及，但可以拿來對拍。
+
+這題很像上一小節：一條翻山路線也有一個特別的點，就是山頂。 把路線從山頂切開，兩
+邊都是「從山頂出發、海拔一路嚴格下降」的鏈，而且走進山頂的兩個不同的鄰居。 所以
+答案是：每個點當山頂，往下的鏈取最長和第二長，加上山頂自己。
+
+最自然的寫法是照上一小節以 $1$ 為根，$\mathit{top}_1$、$\mathit{top}_2$ 只收「比
+自己低的子節點」交上來的鏈。 範例 1 會得到 $3$：山頂 $2$ 往下的兩條鏈，一條是
+$2 \to 4$，另一條要先往\textbf{父節點} $1$ 走，可是以 $1$ 為根時，$1$ 不是 $2$ 的
+子節點，這條鏈不會被交給 $2$。 上一小節的「往下」是離根越來越遠；這一題的「往下」
+是海拔越來越低，方向由海拔決定，和根是誰無關。
+
+所以換一個狀態，不分父子：$\mathit{down}(v)$ 是從 $v$ 出發、海拔一路嚴格下降的
+鏈，最多經過幾個點（含 $v$）。 它只走向比 $v$ 低的鄰居：
+\[
+\mathit{down}(v) = 1 + \max\{\mathit{down}(u) : u \text{ 是 } v \text{ 的鄰居，} h_u < h_v\},
+\]
+沒有比 $v$ 低的鄰居時是 $1$。 計算順序：算 $v$ 時，比它低的鄰居要先算好，依海拔
+由低到高排序就行了。 把每條步道想成從高處指向低處的箭頭，這就是第~6~章有向無環
+圖的拓樸順序；海拔相同的兩點之間沒有箭頭，誰先誰後都可以。
+
+以 $v$ 為山頂的最長路線是 $1 + $ 比 $v$ 低的鄰居中 $\mathit{down}$ 最大的加上第二
+大的。 兩條鏈為什麼不會碰在一起？ 拿掉 $v$ 之後，樹斷成好幾塊，每個鄰居各在一
+塊。 一條從 $v$ 往下的鏈，走進鄰居 $u$ 之後海拔都比 $v$ 低，不會再回到 $v$，所以
+整條都留在 $u$ 那一塊。 兩條鏈走進不同的鄰居，就在不同的塊裡，沒有共同的點。
+
+範例 1 依海拔由低到高計算：
+
+\begin{center}
+\begin{tabular}{ccccc}
+\toprule
+$v$（海拔） & 比 $v$ 低的鄰居 & 它們的 $\mathit{down}$ & $\mathit{down}(v)$ & 當山頂 \\
+\midrule
+6 (1) & 無 & -- & 1 & 1 \\
+4 (2) & 無 & -- & 1 & 1 \\
+3 (4) & 6 & 1 & 2 & 2 \\
+7 (4) & 無（3 一樣高） & -- & 1 & 1 \\
+1 (5) & 3 & 2 & 3 & 3 \\
+5 (6) & 無 & -- & 1 & 1 \\
+2 (7) & 1、4、5 & 3、1、1 & 4 & $1 + 3 + 1 = \mathbf{5}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+最後一列就是圖~\ref{fig:tdp-summit}：山頂 $2$ 往 $1$ 那邊的鏈 $1 \to 3 \to 6$ 有
+$3$ 個點，往 $4$ 那邊有 $1$ 個點。
+
+這一題和上一小節是同一個想法，換了一種「最高點」：上一小節的最高點是離根最近的
+點，這一題是海拔最高的點。 只要每條要找的路徑都能在某個唯一的點切成兩條鏈，就
+能在那個點把最好的兩條接起來。 同樣的模型也出現在別的地方：自行車路線想找一段先
+爬坡、再下坡的練習路線；滑雪場的纜車一路往上、滑道一路往下，問一趟最多經過幾個
+站。
+
+\textbf{程式}
+
+\begin{example}[label=ex:tdp-summit]{cpp}{(summit.cpp) 翻過山頂的步道}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n;
+    cin >> n;
+    vector<long long> h(n + 1);
+    for (int v = 1; v <= n; v++) {
+        cin >> h[v];
+    }
+    vector<vector<int>> adj(n + 1);
+    for (int i = 0; i < n - 1; i++) {
+        int a, b;
+        cin >> a >> b;
+        adj[a].push_back(b);
+        adj[b].push_back(a);
+    }
+
+    // 依海拔由低到高排出計算順序
+    vector<int> byHeight(n);
+    for (int i = 0; i < n; i++) {
+        byHeight[i] = i + 1;
+    }
+    sort(byHeight.begin(), byHeight.end(),
+         [&](int x, int y) { return h[x] < h[y]; });
+
+    // down[v]：從 v 出發一路嚴格下降，最多經過幾個休息點（含 v）
+    vector<int> down(n + 1, 1);
+    int best = 1;
+    for (int v : byHeight) {
+        int top1 = 0, top2 = 0;             // 比 v 低的鄰居裡，最大與第二大的 down
+        for (int u : adj[v]) {
+            if (h[u] >= h[v]) {
+                continue;                   // 不是往下走
+            }
+            if (down[u] > top1) {
+                top2 = top1;
+                top1 = down[u];
+            } else if (down[u] > top2) {
+                top2 = down[u];
+            }
+        }
+        down[v] = 1 + top1;
+        best = max(best, 1 + top1 + top2);  // v 當山頂
+    }
+    cout << best << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+7 \\
+5 7 4 2 6 1 4 \\
+1 2 \\
+1 3 \\
+2 4 \\
+2 5 \\
+3 6 \\
+3 7 \\
+}{
+5 \\
+}
+
+\begin{itemize}
+\item 這支程式沒有定根，也沒有 BFS：計算順序來自海拔，不是來自樹的上下。 它仍然
+是樹形 DP，因為「兩條鏈不相交」用到的是樹的性質。
+\item 排序的 lambda 用 \texttt{[\&]} 捕捉 \texttt{h}（銜接書第~9~章）。 海拔相同
+的點誰先都可以，所以不用比編號。
+\item 每個點看一遍自己的鄰居，全部加起來是 $2(n - 1)$ 次。
+\end{itemize}
+
+\textbf{複雜度}
+
+排序 $O(n \log n)$，之後 $O(n)$。 最大的測試資料在本書測試的環境下，CPU 時間不到
+$0.1$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{以 $1$ 為根、只看子節點}：照上一小節的寫法，只收比自己低的子節點交
+上來的鏈。 範例 1 印出 \texttt{3}，原因見「想法」。 山頂在葉子附近、往根的方向
+一路下降時，這種寫法一定會漏。
+\item \textbf{海拔相同也當成能走}：把 \texttt{h[u] >= h[v]} 寫成
+\texttt{h[u] > h[v]}。 題目的範例 2（一條直線，前兩個點海拔都是 $4$）正確答案
+是 \texttt{4}，在本書測試的環境下印出 \texttt{6}，比真正能走的還長。 兩個一樣高
+的點會互相把對方算進自己的 $\mathit{down}$，等於在兩點之間來回走。
+\item \textbf{只記最大值，算兩次}：寫成 \texttt{1 + 2 * top1}，範例 1 印出
+\texttt{7}。 和上一小節一樣，兩條鏈要走進不同的鄰居。
+\end{itemize}
+
+\subsection{什麼時候用、什麼時候不能用}
+
+\begin{itemize}
+\item 題目問「樹上最好的一條路徑」，而且每條路徑都能在一個唯一的點切成兩條往下的
+鏈：在那個點取最好和第二好的鏈接起來。 邊長有負的、要對每個子樹各求一次、或要
+數最長路徑有幾條時，兩次走訪不夠用，就用這個做法。
+\item 要求「從每個點出發的最長路徑」，一次由下往上只看得到往下的鏈，還要知道往父
+節點那邊能走多遠，這是下一節換根的工作（本章練習第~\ref{drill:tdp-ecc}~題）。
+\end{itemize}
+
+\section{換根 DP}
+\label{sec:tdp-reroot}
+
+到目前為止，答案都只要算一次：以某個點為根，由下往上算到根就結束。 有些題目要
+問「每個點」：
+
+\begin{quote}
+社區有 $n$ 戶人家，由 $n - 1$ 條巷子連成一棵樹，每條巷子走一次算一步。 過年
+前，每一戶都要把一盒年菜分別送到其他每一戶，一戶一趟，回程不算。 對每一戶 $v$，
+求出 $v$ 送完所有年菜一共要走幾步，也就是 $v$ 到其他每一戶的步數總和。
+\end{quote}
+
+最直接的做法是每一戶各做一次 BFS，加總距離，$O(n^2)$。 $n = 2 \times 10^5$ 時
+是 $4 \times 10^{10}$ 步，來不及。
+
+\subsection{先算一個根，再換到旁邊}
+
+先只算一戶。 以 $1$ 為根，第 1 本第~13~章的子樹大小 $\mathit{sz}(v)$ 已經會算；再記
+$\mathit{sub}(v)$：$v$ 到它子樹裡每一戶的步數總和。 從 $v$ 走到子節點 $c$ 的子
+樹裡的每一戶，都是先走一步到 $c$，再走 $c$ 到那一戶的步數，所以
+\[
+\mathit{sub}(v) = \sum_c \bigl(\mathit{sub}(c) + \mathit{sz}(c)\bigr).
+\]
+倒著看 BFS 順序算完，$\mathit{sub}(1)$ 就是 $1$ 的答案。
+
+接下來是關鍵：知道 $p$ 的答案，它的子節點 $c$ 的答案差多少？ 拿掉
+$p$--$c$ 這條巷子，樹分成兩塊：$c$ 的子樹有 $\mathit{sz}(c)$ 戶，其他 $n -
+\mathit{sz}(c)$ 戶在 $p$ 那一邊。 送年菜的人從 $p$ 換成 $c$，到 $c$ 那一塊的每
+戶都少走一步，到 $p$ 那一塊的每戶都多走一步：
+\[
+\mathit{ans}(c) = \mathit{ans}(p) - \mathit{sz}(c) + \bigl(n - \mathit{sz}(c)\bigr).
+\]
+
+\begin{center}
+\begin{tikzpicture}[x=1.15cm, y=1.0cm]
+\node[tv] (1) at (2,3) {1};
+\node[tvalt] (2) at (1,2) {2};
+\node[tv] (3) at (3,2) {3};
+\node[tv] (4) at (0.4,1) {4};
+\node[tvhl] (5) at (1.6,1) {5};
+\node[tv] (7) at (3,1) {7};
+\node[tvhl] (6) at (1.6,0) {6};
+\foreach \a/\b in {1/2, 1/3, 2/4, 3/7, 5/6} {\draw[te] (\a) -- (\b);}
+\draw[tehl, dashed] (2) -- (5);
+\node[tlbl, left] at (2.west) {$\mathit{ans}(2) = 10$};
+\node[tlbl, right] at (6.east) {$5$、$6$ 各少走一步};
+\end{tikzpicture}
+\diagcaption{送年菜的人從 $2$（粉色）換成 $5$。 到 $5$ 的子樹（橘色，$2$ 戶）每戶
+少走一步，到其他 $5$ 戶每戶多走一步，$\mathit{ans}(5) = 10 - 2 + 5 = 13$。}
+\label{fig:tdp-reroot}
+\end{center}
+
+這個式子要先知道父節點的答案，所以第二趟是\textbf{由上往下}，順著 BFS 順序算。
+兩趟加起來，每個點的答案都在 $O(n)$ 內算完。 這種「先以一個點為根算好，再把根一
+步一步換到鄰居」的做法叫換根 DP。
+
+\begin{example}[label=ex:tdp-distsum]{cpp}{(new\_year.cpp) 每一戶到其他戶的步數總和}
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n;
+    cin >> n;
+    vector<vector<int>> adj(n + 1);
+    for (int i = 0; i < n - 1; i++) {
+        int u, v;
+        cin >> u >> v;
+        adj[u].push_back(v);
+        adj[v].push_back(u);
+    }
+
+    vector<int> parent(n + 1, 0);
+    vector<int> order = {1};
+    for (int i = 0; i < (int)order.size(); i++) {
+        int u = order[i];
+        for (int v : adj[u]) {
+            if (v != parent[u]) {
+                parent[v] = u;
+                order.push_back(v);
+            }
+        }
+    }
+
+    // 第一趟，由下往上：sz[v] 子樹大小，sub[v] 是 v 到子樹裡每戶的步數總和
+    vector<long long> sz(n + 1, 1), sub(n + 1, 0);
+    for (int i = n - 1; i >= 1; i--) {
+        int v = order[i], p = parent[v];
+        sz[p] += sz[v];
+        sub[p] += sub[v] + sz[v];           // 從 p 出發，每戶都多 v 那 1 步
+    }
+
+    // 第二趟，由上往下：送年菜的人從 p 換成 v
+    vector<long long> ans(n + 1);
+    ans[1] = sub[1];
+    for (int i = 1; i < n; i++) {
+        int v = order[i], p = parent[v];
+        ans[v] = ans[p] - sz[v] + (n - sz[v]);
+    }
+    for (int v = 1; v <= n; v++) {
+        cout << ans[v] << (v == n ? '\n' : ' ');
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+7 \\
+1 2 \\
+1 3 \\
+2 4 \\
+2 5 \\
+5 6 \\
+3 7 \\
+}{
+11 10 14 15 13 18 19 \\
+}
+
+範例就是圖~\ref{fig:tdp-reroot} 的樹，BFS 順序是 $1, 2, 3, 4, 5, 7, 6$。 兩趟算
+出來的值：
+
+\begin{center}
+\begin{tabular}{c|ccccccc}
+\toprule
+$v$ & 1 & 2 & 3 & 4 & 5 & 6 & 7 \\
+\midrule
+$\mathit{sz}(v)$ & 7 & 4 & 2 & 1 & 2 & 1 & 1 \\
+$\mathit{sub}(v)$ & 11 & 4 & 1 & 0 & 1 & 0 & 0 \\
+$\mathit{ans}(v)$ & 11 & $11 - 4 + 3 = 10$ & $11 - 2 + 5 = 14$ & 15 & 13 & 18 & 19 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+$2$ 位在比較中間，送完只要 $10$ 步；$7$ 在邊上，要 $19$ 步。
+
+\begin{itemize}
+\item 第二趟的 \texttt{i} 從 $1$ 開始往後走，跳過根。 \texttt{order} 裡父節點一定
+排在前面，所以輪到 $v$ 時 \texttt{ans[p]} 已經算好。
+\item \texttt{sz} 也開成 \texttt{long long}，\texttt{n - sz[v]} 就直接用
+\texttt{long long} 算。 一條 $2 \times 10^5$ 個點的鏈，端點的答案是
+$n(n-1)/2 \approx 2 \times 10^{10}$，超過 \texttt{int}。
+\end{itemize}
+
+\subsection{一般的換根：父節點那一側}
+
+距離和的換根式子很短，是因為「$c$ 那一塊少一步、其他多一步」剛好能直接寫出來。
+一般的題目沒有這麼巧，要換一個角度想。
+
+以 $v$ 為根時，$v$ 的鄰居分成兩種：以 $1$ 為根時的子節點，和父節點 $p$。 子節點
+那幾塊，就是第一趟算好的子樹，記作 $\mathit{down}(c)$。 父節點那一塊，是「整棵
+樹拿掉 $v$ 的子樹」，從 $v$ 看過去，它也是一棵掛在 $v$ 下面的子樹，根是 $p$。
+把它的值記作 $\mathit{up}(v)$。 有了這兩種，$v$ 當根的答案就是用 $v$ 自己的值，
+合併所有 $\mathit{down}(c)$ 和 $\mathit{up}(v)$，和第一趟的合併方式一樣。
+
+\begin{center}
+\begin{tikzpicture}[x=1cm, y=1cm]
+\draw[dashed, optStroke, thick] (3,3.35) ellipse (2.4cm and 0.85cm);
+\node[tv] (p) at (3,3.2) {$p$};
+\node[tv] (s1) at (1.7,3.4) {};
+\node[tv] (s2) at (4.3,3.4) {};
+\draw[te] (p) -- (s1);
+\draw[te] (p) -- (s2);
+\node[tlbl, right] at (5.6,3.55) {$\mathit{up}(v)$：拿掉 $v$ 的子樹後};
+\node[tlbl, right] at (5.6,3.15) {剩下的部分，根是 $p$};
+\node[tvhl] (v) at (3,1.9) {$v$};
+\draw[te] (p) -- (v);
+\foreach \x/\c in {1.8/1, 4.2/2} {
+    \node[tv] (c\c) at (\x,0.9) {$c_\c$};
+    \draw[te] (v) -- (c\c);
+    \draw[black!50] (c\c.south) -- (\x-0.6,-0.3) -- (\x+0.6,-0.3) -- cycle;
+    \node[tlbl] at (\x,-0.55) {$\mathit{down}(c_\c)$};
+}
+\end{tikzpicture}
+\diagcaption{以 $v$ 為根時，$v$ 的每個鄰居各帶著一塊：子節點那幾塊是第一趟的
+$\mathit{down}$，父節點那一塊是 $\mathit{up}(v)$。}
+\label{fig:tdp-up}
+\end{center}
+
+$\mathit{up}(v)$ 怎麼算？ 那一塊的根是 $p$，$p$ 在那一塊裡的鄰居是：$p$ 的父節點
+那一側（$\mathit{up}(p)$），以及 $p$ 除了 $v$ 以外的子節點。 所以
+$\mathit{up}(v)$ 就是「$p$ 自己的值，合併 $\mathit{up}(p)$ 和 $p$ 除了 $v$ 以外
+所有子節點的 $\mathit{down}$」。 它要用到 $\mathit{up}(p)$，所以由上往下算。
+
+難的地方是「除了 $v$ 以外」。 $p$ 可能有很多子節點，每個子節點都重新合併一次其他
+兄弟，星狀的樹就變成 $O(n^2)$。 要看合併方式：
+
+\begin{itemize}
+\item 合併是加總：先算好所有子節點的總和，扣掉 $v$ 的那一項就好，$O(1)$。
+\item 合併是取最大：最大值沒辦法「扣掉」。 改記最大和第二大，以及最大的那一個來
+自哪個子節點；如果 $v$ 正好是最大的那一個，就用第二大（本章練習第
+~\ref{drill:tdp-ecc}~題）。
+\end{itemize}
+
+\subsection{例題：選在哪裡發電}
+\label{sec:tdp-ex-power}
+
+\textbf{題意}（\akiref{where-to-build-the-power-station}{選在哪裡發電}）
+
+\begin{itemize}
+\item 山上的村子有 $n$ 個用電地點，用 $n - 1$ 條電線連成一棵樹。 地點 $i$ 一天自己
+發 $a_i$ 度電、要用 $b_i$ 度電。
+\item 總站蓋在地點 $r$ 時，可以從山下引進 $X$ 度電到 $r$。 每條電線只能從離總站近
+的一端送到遠的一端；每個地點可以把手上的電自己用、往外送，或丟掉。
+\item 對每一個 $r$，求出讓每個地點都用得到 $b_i$ 度電的最小 $X$。
+\item $n \le 2 \times 10^5$，$a_i, b_i \le 10^9$。
+\end{itemize}
+
+例如四個地點連成一條線 $1 - 2 - 3 - 4$，發電量是 $3, 0, 4, 0$，用電量是 $0, 2, 0,
+3$。 總站蓋在 $4$ 時，$3$ 多的 $4$ 度送不回 $4$，$4$ 要的 $3$ 度只能全部引進，答
+案是 $3$。 蓋在 $3$ 時，$3$ 要送 $3$ 度給 $4$、$2$ 度給 $2$（$1$ 多的電送不到 $2$），
+自己發的 $4$ 度不夠，要引進 $1$ 度。 四個答案依序是 $0, 2, 1, 3$。
+
+\textbf{想法}
+
+先固定總站 $r$，以 $r$ 為根。 記 $d_v = b_v - a_v$，是 $v$ 自己缺多少電（負的表
+示有多）。 定義 $\mathit{need}(v)$：$v$ 的子樹整塊向 $v$ 的父節點要多少電。 $v$
+要送給每個子節點 $c$ 剛好 $\mathit{need}(c)$ 度（子節點之間不能互相支援，也不能往
+回送），自己還缺 $d_v$，所以 $v$ 一共缺 $d_v + \sum_c \mathit{need}(c)$。 這個
+數是負的時候，多出來的電送不上去，只能丟掉，向上要的是 $0$：
+\[
+\mathit{need}(v) = \max\Bigl(0,\ d_v + \sum_c \mathit{need}(c)\Bigr).
+\]
+總站自己也照這個式子算，$X = \mathit{need}(r)$。
+
+這個 $\max(0, \cdot)$ 是整題的重點。 少了它，某個子樹多的電就會被拿去補別的子樹，
+可是電只能往外送，做不到。 所以「全部用電減全部發電」不是答案：題目的範例 1 用電
+和發電一樣多，五個答案裡卻只有一個是 $0$。
+
+對一個 $r$ 這是一次樹形 DP，$O(n)$。 每個 $r$ 各做一次是 $O(n^2)$，只能過小的子
+題，也可以拿來對拍。
+
+換根。 以 $1$ 為根做第一趟，算出 $\mathit{down}(v)$（就是以 $1$ 為根時的
+$\mathit{need}(v)$），並記下 $\mathit{kids}(v)$：$v$ 所有子節點的
+$\mathit{down}$ 加起來。 第二趟由上往下，照上一小節的做法算 $\mathit{up}(v)$：
+那一塊的根是 $p$，$p$ 收到的是 $\mathit{up}(p)$ 和除了 $v$ 以外的子節點，所以
+\[
+\mathit{up}(v) = \max\Bigl(0,\ d_p + \bigl(\mathit{kids}(p) - \mathit{down}(v)\bigr) + \mathit{up}(p)\Bigr),
+\]
+根的 $\mathit{up}$ 是 $0$。 總站蓋在 $v$ 的答案是
+\[
+\mathit{ans}(v) = \max\bigl(0,\ d_v + \mathit{kids}(v) + \mathit{up}(v)\bigr).
+\]
+
+這裡能直接「扣掉 $v$ 的那一項」，是因為 $\max(0, \cdot)$ 是在加總\textbf{之後}才
+做的。 $\mathit{kids}(p)$ 是一些數單純相加，拿掉其中一個 $\mathit{down}(v)$，剩
+下的就是其他子節點的總和，一點誤差都沒有；扣完再取 $\max(0, \cdot)$，就是那一塊
+的值。
+
+用題目的範例 1 走一次。 電線是 $1$--$2$、$1$--$3$、$3$--$4$、$3$--$5$，$d =
+(-1, 4, 0, -5, 2)$，BFS 順序是 $1, 2, 3, 4, 5$：
+
+\begin{center}
+\begin{tabular}{c|ccccc}
+\toprule
+$v$ & 1 & 2 & 3 & 4 & 5 \\
+\midrule
+$d_v$ & $-1$ & 4 & 0 & $-5$ & 2 \\
+$\mathit{down}(v)$ & 5 & 4 & 2 & 0 & 2 \\
+$\mathit{kids}(v)$ & 6 & 0 & 2 & 0 & 0 \\
+$\mathit{up}(v)$ & 0 & 1 & 3 & 5 & 3 \\
+$\mathit{ans}(v)$ & 5 & 5 & 5 & 0 & 5 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+例如 $\mathit{up}(4) = \max(0,\ d_3 + \mathit{kids}(3) - \mathit{down}(4) +
+\mathit{up}(3)) = 0 + 2 - 0 + 3 = 5$，$\mathit{ans}(4) = \max(0,\ -5 + 0 + 5) = 0$。
+$\mathit{down}(4) = 0$：$4$ 多出 $5$ 度，以 $1$ 為根時送不上去。 換到以 $4$ 為根，
+$4$ 那 $5$ 度剛好送給 $\mathit{up}(4) = 5$ 的那一塊，答案變成 $0$。
+
+同樣的模型也出現在別的地方：水只能從水塔往下游流，要決定水塔蓋在哪裡、每個候選
+位置要補多少水；物資只能從倉庫往外配送、不能退回，比較每個倉庫地點要額外進多少
+貨。
+
+\textbf{程式}
+
+\begin{example}[label=ex:tdp-power]{cpp}{(power.cpp) 選在哪裡發電}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n;
+    cin >> n;
+    vector<long long> d(n + 1);             // 用電減發電，負的表示有多的電
+    for (int v = 1; v <= n; v++) {
+        long long a, b;
+        cin >> a >> b;
+        d[v] = b - a;
+    }
+    vector<vector<int>> adj(n + 1);
+    for (int i = 0; i < n - 1; i++) {
+        int u, v;
+        cin >> u >> v;
+        adj[u].push_back(v);
+        adj[v].push_back(u);
+    }
+
+    vector<int> parent(n + 1, 0);
+    vector<int> order = {1};
+    for (int i = 0; i < (int)order.size(); i++) {
+        int u = order[i];
+        for (int v : adj[u]) {
+            if (v != parent[u]) {
+                parent[v] = u;
+                order.push_back(v);
+            }
+        }
+    }
+
+    // 第一趟，由下往上（以 1 為根）
+    // kids[v]：v 所有子節點的 down 加總；down[v]：v 的子樹向父節點要的電
+    vector<long long> kids(n + 1, 0), down(n + 1);
+    for (int i = n - 1; i >= 0; i--) {
+        int v = order[i];
+        down[v] = max(0LL, d[v] + kids[v]);
+        if (i > 0) {
+            kids[parent[v]] += down[v];
+        }
+    }
+
+    // 第二趟，由上往下
+    // up[v]：把父節點那一側整塊看成 v 的子樹時，它向 v 要的電
+    vector<long long> up(n + 1, 0), ans(n + 1);
+    for (int i = 0; i < n; i++) {
+        int v = order[i];
+        if (i > 0) {
+            int p = parent[v];
+            up[v] = max(0LL, d[p] + kids[p] - down[v] + up[p]);
+        }
+        ans[v] = max(0LL, d[v] + kids[v] + up[v]);
+    }
+    for (int v = 1; v <= n; v++) {
+        cout << ans[v] << (v == n ? '\n' : ' ');
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+5 \\
+2 1 \\
+0 4 \\
+1 1 \\
+5 0 \\
+0 2 \\
+1 2 \\
+1 3 \\
+3 4 \\
+5 3 \\
+}{
+5 5 5 0 5 \\
+}
+
+\begin{itemize}
+\item 第一趟跑到 \texttt{i = 0}，根的 \texttt{down} 也算出來，但第二趟沒有用到它：
+根的答案直接由 \texttt{kids[1]} 和 \texttt{up[1] = 0} 算。
+\item \texttt{max(0LL, ...)} 的 \texttt{0LL} 是 \texttt{long long} 的 $0$，和第 1 本第~7
+~章說過的一樣，\texttt{max} 的兩個引數型別要相同。
+\item 答案最大約 $2 \times 10^5 \times 10^9 = 2 \times 10^{14}$，全部用
+\texttt{long long}。
+\end{itemize}
+
+\textbf{複雜度}
+
+兩趟各 $O(n)$。 最大的測試資料在本書測試的環境下，CPU 時間不到 $0.1$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{$\mathit{up}$ 沒有取 $\max(0, \cdot)$}：寫成 \texttt{up[v] = d[p] +
+kids[p] - down[v] + up[p];}。 範例 1 剛好不受影響，題目的範例 2（就是上面四個點的
+直線）正確答案是 \texttt{0 2 1 3}，這樣寫印出 \texttt{0 0 0 0}。 以 $2$ 為總站時，
+$\mathit{up}(2) = -3 + 0 + 0 = -3$，等於讓 $1$ 多的電倒流回 $2$。
+\item \textbf{用總量相減}：輸出 $\max(0, \sum b_i - \sum a_i)$。 範例 1 每個答案都
+印成 \texttt{0}，範例 2 也全是 \texttt{0}。
+\item \textbf{每個子節點重算兄弟}：算 $\mathit{up}(v)$ 時用迴圈把 $p$ 的其他子節點
+重新加一遍，不用 \texttt{kids[p] - down[v]}。 結果是對的，但一個點有 $2 \times
+10^5$ 個子節點的星狀樹上，迴圈一共跑大約 $n^2 = 4 \times 10^{10}$ 次，遠超過時間
+限制。 這題的測試資料裡有這樣的樹。
+\end{itemize}
+
+\begin{apcsnote}
+換根題的小子題，通常是「每個點各做一次」的 $O(n^2)$ 就能過的範圍。 先把這支寫好，
+它就是對拍用的程式；換根的式子寫錯時，常常只有某些點的答案不對，和暴力解逐點比
+對，最容易找到是哪一個點、哪一條式子出錯。
+\end{apcsnote}
+
+\subsection{什麼時候用、什麼時候不能用}
+
+\begin{itemize}
+\item 題目要求「每個點當根（中心、總站、集合地點）時」的答案，而且固定一個根時是
+一次樹形 DP：先想單一根的式子，再想怎麼把根換到鄰居。
+\item 合併是加總（或任何可以「扣掉一項」的運算）時，$\mathit{up}$ 可以 $O(1)$ 算；
+合併是取最大、最小時，記最好和第二好。
+\item 合併方式既不能扣、也不能只記前兩名（例如要排序所有子節點的值），換根就沒
+有這麼簡單，要用前綴、後綴的技巧，留到《C++ 演算法解題 3》。
+\end{itemize}
+
+\section{預告：依子樹大小合併}
+\label{sec:tdp-preview}
+
+到這裡為止，每個點的狀態都是幾個數。 有一類題目，狀態是一整張表。 例如一棵技能
+樹，要學一個技能，得先學它的上層技能；每個技能有一個價值，最多只能學 $k$ 個，價
+值總和最多是多少？ 狀態要記「在 $v$ 的子樹裡學幾個」：$f_v[j]$ 是 $v$ 的子樹裡學
+$j$ 個技能時的最大價值。 $j \ge 1$ 時 $v$ 自己一定有學；$f_v[0] = 0$，表示整個子
+樹都不學。 把子節點 $c$ 的表併進 $v$，是第~1~章
+背包的合併：$v$ 這邊用掉 $a$ 個、$c$ 的子樹用掉 $b$ 個，加起來是 $a + b$ 個。
+
+\begin{code}{cpp}{兩張表的合併（s 是 v 目前併過的點數）}
+// f：v 和已經併進來的子樹，長度 s + 1；g：子節點 c 的表，長度 sz[c] + 1
+vector<long long> h(s + sz[c] + 1, NEG);   // NEG 表示做不到
+h[0] = 0;                                  // 整個子樹都不學
+for (int a = 1; a <= s; a++) {             // a >= 1：v 自己有學，c 才能學
+    for (int b = 0; b <= sz[c]; b++) {
+        h[a + b] = max(h[a + b], f[a] + g[b]);
+    }
+}
+f = h;
+s += sz[c];
+\end{code}
+
+一次合併的雙層迴圈跑 $s \times \mathit{sz}(c)$ 次左右。 如果每張表都開成 $k + 1$
+格、每次都跑滿，一次合併是 $k^2$，$n$ 次就是 $n k^2$；$n = k = 3000$ 時是 $2.7
+\times 10^{10}$，來不及。
+
+關鍵是表的長度只開到\textbf{子樹大小}：$v$ 的子樹只有 $\mathit{sz}(v)$ 個點，
+不可能學超過 $\mathit{sz}(v)$ 個。 這樣一來，整棵樹所有合併加起來不超過大約
+$n^2$ 次。 理由是把 $s \times \mathit{sz}(c)$ 看成「已經併進來的點」和「$c$ 的
+子樹裡的點」兩兩配對的對數；兩個點只會在它們最低的共同祖先那裡、被合併的那一次
+配成一對，所以總數不超過 $n(n-1)/2$ 對。 $n = 3000$ 時是 $4.5 \times 10^6$，很
+快。
+
+這個做法和第~1~章的背包合在一起，寫起來要注意的細節比較多：表的長度怎麼限制、
+「做不到」怎麼表示、合併的順序。 這一章只說到這裡，實作練習的「修剪預算」用得到
+同樣的想法，它的表的長度是用時間的上限來限制的。
+
+\section{本章常見錯誤}
+\label{sec:tdp-pitfalls}
+
+\begin{center}
+\begin{tabular}{p{0.22\linewidth}p{0.46\linewidth}p{0.2\linewidth}}
+\toprule
+錯誤 & 例子 & 見 \\
+\midrule
+狀態不夠 & 只記「子樹最多幾分」，不記 $v$ 選了沒有；路徑只記最長的鏈，答案寫成兩倍 &
+第~\ref{sec:tdp-mis}、\ref{sec:tdp-path}~節 \\
+轉移多加了限制 & $v$ 不選就要求子節點一定選 & 第~\ref{sec:tdp-mis}~節 \\
+同一條邊算錯次數 & 協調費用了父節點那一條；兩條鏈走進同一個子節點 &
+第~\ref{sec:tdp-ex-shirts}、\ref{sec:tdp-path}~節 \\
+「往下」的方向弄錯 & 翻山路線只看子節點，漏掉經過父節點的下坡 &
+第~\ref{sec:tdp-ex-summit}~節 \\
+截斷放錯位置 & 換根的 $\mathit{up}$ 沒有取 $\max(0, \cdot)$；用總量相減 &
+第~\ref{sec:tdp-ex-power}~節 \\
+由上往下那一趟漏看父節點 & 找出擺法時沒看父節點有沒有擺；換根時順序寫反 &
+第~\ref{sec:tdp-mis}、\ref{sec:tdp-reroot}~節 \\
+太慢 & 換根時每個子節點重算兄弟；表的長度沒有用子樹大小限制 &
+第~\ref{sec:tdp-ex-power}、\ref{sec:tdp-preview}~節 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{本章練習}
+\label{sec:ch20-exercises}
+
+\begin{drills}[label=drills:ch20]
+\item \label{drill:tdp-trace} 一棵樹有 $7$ 個點，邊是 $1$--$2$、$1$--$3$、$1$--$4$、
+$2$--$5$、$2$--$6$、$4$--$7$，營收依序是 $w = (1, 3, 2, 1, 2, 2, 5)$。 以 $1$ 為
+根，寫出每個點的 $\mathit{in}$、$\mathit{out}$，最大的營收，以及範例
+~\ref{ex:tdp-mis} 會印出的擺法。
+
+\item \label{drill:tdp-cover} 大樓的走廊連成一棵樹，每條走廊的兩端至少要有一端
+站著一位保全，在點 $v$ 站保全的成本是 $c_v$。 用兩個狀態寫出求最小總成本的轉移式
+和初始值。
+
+\item 用第~\ref{sec:tdp-path}~節的 $\mathit{top}_1$、$\mathit{top}_2$，在第 1 本第~13~章的族譜（圖 13.1，根是 $4$，每條邊長度 $1$）上算出每個點的
+$\mathit{top}_1$、$\mathit{top}_2$，確認最大的 $\mathit{top}_1 +
+\mathit{top}_2$ 等於第 1 本第~13~章算出的直徑 $5$。
+
+\item 有人把範例~\ref{ex:tdp-distsum} 第二趟的迴圈寫成
+\texttt{for (int i = n - 1; i >= 1; i--)}。 範例的輸入會印出什麼？ 為什麼前三個
+數還是對的？
+
+\item \label{drill:tdp-ecc} 對樹上每個點 $v$，求從 $v$ 出發最遠能走多遠（邊長都
+是 $1$）。 以 $1$ 為根，第一趟算出 $\mathit{top}_1(v)$、$\mathit{top}_2(v)$，並
+記下 $\mathit{top}_1(v)$ 是從哪一個子節點來的。 寫出第二趟 $\mathit{up}(v)$ 的式
+子：從 $v$ 先走到父節點 $p$、再繼續走，最遠能走多遠。 說明為什麼這裡不能像距離
+和那樣「扣掉 $v$ 的那一項」。
+
+\item 第~\ref{sec:tdp-preview}~節的合併，一次的雙層迴圈大約跑 $s \times
+\mathit{sz}(c)$ 次。 一條 $n$ 個點的鏈（以一端為根），所有合併加起來大約幾次？ 一
+棵星狀的樹（根接著 $n - 1$ 個葉子）呢？
+\end{drills}
+
+\section{實作練習}
+\label{sec:ch20-practice}
+
+下面是 Aki-Judge 上和本章相關的題目，依小節分組。 難度分四階：暖身是直接套用本
+章的寫法；基本要自己決定狀態；實戰的題敘比較長，要先把題目轉換成本章的形狀；挑
+戰會和其他章的技巧合在一起。
+
+\begin{center}
+\begin{tabular}{llc}
+\toprule
+小節 & 題目 & 難度 \\
+\midrule
+子節點合併 & \akiref{squads-that-beat-the-level-above}{贏過上一層的小隊} & 暖身 \\
+ & \akiref{are-the-squads-evenly-staffed}{小隊人力是否平均} & 暖身 \\
+ & \akiref{hot-water-arrival-spread}{熱水到得夠整齊的閥門} & 暖身 \\
+ & \akiref{the-descending-token}{往下走的棋子} & 基本 \\
+選或不選 & \akiref{non-adjacent-water-stations}{不相鄰的補水站} & 實戰 \\
+\midrule
+樹上的路徑 & \akiref{longest-contact-chain-in-every-branch}{每個分部內部的最長聯絡鏈} & 基本 \\
+ & \akiref{counting-the-farthest-campsite-pairs}{相隔最遠的營位有幾組} & 實戰 \\
+\midrule
+換根 & \akiref{where-to-put-the-broadcast-server}{廣播主機該放哪一間教室} & 基本 \\
+ & \akiref{levels-after-a-branch-spins-off}{分部獨立後的層級數} & 挑戰 \\
+\midrule
+依子樹大小合併 & \akiref{pruning-budget}{修剪預算} & 挑戰 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+本章的三題例題也在 Aki-Judge 上，讀完各節之後可以先自己寫一次再對照。 這一章的
+題單還在擴充，之後會再補題。
+
+\section{讀完你應該會}
+\label{sec:ch20-checklist}
+
+\begin{itemize}
+\item 看到「每個點選或不選、相鄰的有限制」的樹上問題，能把 $v$ 的選擇放進狀態，寫
+出用子節點合併的轉移，並倒著看 BFS 順序算完，不用遞迴。
+\item 算出最佳值之後，能順著 BFS 順序由上往下，找出一組達到最佳值的選法。
+\item 求樹上最好的路徑時，能找出每條路徑唯一的「切點」，在那裡用最大和第二大接起
+兩條鏈，並說得出什麼時候不能用兩次走訪。
+\item 題目要求每個點當根的答案時，能先寫單一根的樹形 DP，再寫出由上往下的
+$\mathit{up}$ 式子，並判斷「扣掉一個子節點」能不能直接做。
+\item 估得出狀態是一整張表時的合併次數，知道表的長度要用子樹大小限制。
+\end{itemize}
+
+\textbf{延伸閱讀}（書末會整理完整的參考資料）
+
+\begin{itemize}
+\item Antti Laaksonen，\textit{Competitive Programmer's Handbook}，第 14 章 14.2、
+14.3 節：直徑的動態規劃算法，以及每個點出發的最長路徑（就是本章練習第
+~\ref{drill:tdp-ecc}~題），篇幅很短。
+\item 劉汝佳，《算法競賽入門經典》第 2 版，9.4.2 節（PDF p.434 起）：樹的最大獨立
+集、重心、最長路徑，用中文寫，後面有幾題例題。
+\item 吳邦一，《AP325：從 APCS 實作題檢測三級到五級》，第 8 章 8.3 節：樹上的例題
+和習題很多，其中不少是由下往上的樹形 DP，適合要準備 APCS 的讀者多練。
+\end{itemize}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item BFS 順序是 $1, 2, 3, 4, 5, 6, 7$。 葉子 $3, 5, 6, 7$ 的 $(\mathit{in},
+\mathit{out})$ 是 $(2, 0)$、$(2, 0)$、$(2, 0)$、$(5, 0)$。 $2$：$\mathit{in} = 3
++ 0 + 0 = 3$，$\mathit{out} = 2 + 2 = 4$。 $4$：$\mathit{in} = 1 + 0 = 1$，
+$\mathit{out} = 5$。 $1$：$\mathit{in} = 1 + 4 + 0 + 5 = 10$，$\mathit{out} =
+\max(3, 4) + \max(2, 0) + \max(1, 5) = 11$。 最大是 $11$。 由上往下：$1$ 不去
+（$10 < 11$）；$2$ 選 $\mathit{out}$，不去；$3$ 去；$4$ 選 $\mathit{out}$，不去；
+$5$、$6$ 的父節點 $2$ 沒去，各自去；$7$ 去。 程式印出 \texttt{11} 和
+\texttt{3 5 6 7}。
+
+\item $\mathit{on}(v)$：$v$ 站保全時，$v$ 的子樹裡每條走廊都有人顧的最小成本；
+$\mathit{off}(v)$：$v$ 不站時的最小成本。 $v$ 不站，$v$ 和子節點之間的走廊只能靠
+子節點顧，所以子節點一定要站；$v$ 站了，子節點站不站都可以：
+\[
+\mathit{on}(v) = c_v + \sum_c \min\bigl(\mathit{on}(c), \mathit{off}(c)\bigr),\qquad
+\mathit{off}(v) = \sum_c \mathit{on}(c).
+\]
+初始值 $\mathit{on}(v) = c_v$、$\mathit{off}(v) = 0$，答案是根的兩個值取小的。 第
+~\ref{sec:tdp-mis}~節常見錯誤第一項那條錯的式子，換到這一題就是對的。
+
+\item 每個點的 $(\mathit{top}_1, \mathit{top}_2)$：葉子 $1, 3, 6, 8, 9$ 都是
+$(0, 0)$；$5$ 收到 $6$、$8$ 各 $1$，是 $(1, 1)$；$7$ 收到 $3$ 的 $1$，是 $(1, 0)$；
+$2$ 收到 $1$ 的 $1$ 和 $5$ 的 $1 + 1 = 2$，是 $(2, 1)$；$4$ 收到 $2$ 的 $3$、$7$
+的 $2$、$9$ 的 $1$，是 $(3, 2)$。 最大的和是 $4$ 的 $3 + 2 = 5$，路徑是 $6 - 5 - 2
+- 4 - 7 - 3$（或把 $6$ 換成 $8$），和第 1 本第~13~章一樣。
+
+\item 印出 \texttt{11 10 14 5 3 5 5}。 倒著看時先處理 BFS 順序後面的點，它們父節
+點的 \texttt{ans} 還是 $0$，例如 $6$ 算成 $0 - 1 + 6 = 5$。 $2$、$3$ 的父節點是根，
+\texttt{ans[1]} 在迴圈之前就算好了，所以它們是對的。
+
+\item 第一趟之外再記 $\mathit{from}(v)$：$\mathit{top}_1(v)$ 是經過哪個子節點來的
+（沒有子節點時記 $0$）。 第二趟由上往下，$v$ 的父節點是 $p$：
+\[
+\mathit{up}(v) = 1 + \max\bigl(\mathit{up}(p),\ \text{$\mathit{from}(p) = v$ 時用
+$\mathit{top}_2(p)$，否則用 $\mathit{top}_1(p)$}\bigr),
+\]
+根的 $\mathit{up}$ 是 $0$。 從 $v$ 出發最遠是 $\max(\mathit{top}_1(v),
+\mathit{up}(v))$。 $p$ 最長的鏈如果正好經過 $v$，就不能再走回去，要改用第二長的。 只知道最大值，
+拿掉其中一個之後的最大值算不出來，所以不能「扣掉」，要多記第二大。
+
+\item 鏈：每個點只有一個子節點，合併時 $s = 1$，$\mathit{sz}(c)$ 從 $1$ 到 $n - 1$，
+總共約 $n^2 / 2$ 次。 星狀：根依序併入 $n - 1$ 個葉子，第 $j$ 次 $s = j$、
+$\mathit{sz}(c) = 1$，也約 $n^2 / 2$ 次。 兩種都在正文的上限 $n(n-1)/2$ 附近。
+\end{enumerate}
