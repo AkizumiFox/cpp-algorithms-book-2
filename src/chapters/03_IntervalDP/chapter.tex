@@ -16,8 +16,9 @@ DP}（interval DP）。
 
 這一章先用作業簿把區間 DP 的四件事走一遍，重點是狀態的意思和計算順序，並估
 計 $O(n^3)$ 到底能處理多大的 $n$。 接著三題例題練三種常見的轉移：在區間裡挑
-一個切點把它分成兩半、看最左邊的人和誰配成一對、從兩端往內縮。 最後處理排
-成一圈的情況，以及什麼時候不該用區間 DP。
+一個切點把它分成兩半、看最左邊的人和誰配成一對、從兩端往內縮。 切點那一節
+之後，另外用一節講演算法課本最常拿來介紹區間 DP 的矩陣鏈乘，並示範怎麼從表格
+印出最好的做法。 最後處理排成一圈的情況，以及什麼時候不該用區間 DP。
 
 動態規劃的四件事、記憶化和填表的關係，第 1 本第~9~章都講過，這一章直接用。 前綴和
 在第 1 本第~5~章。 用到的語法只有二維的 \texttt{vector}（銜接書第~3~章 3.6 節）。
@@ -493,6 +494,227 @@ $n = 150$ 時是 $573800$ 次。 最大的測試資料在本書測試的環境�
 在本書測試的環境下，範例的輸入直接當掉（segmentation fault）；加上
 \texttt{-fsanitize=address} 編譯，會指出讀到了陣列外面。 這是未定義行為，換
 一台機器或換一組輸入，也可能不當掉、印出奇怪的數字。
+\end{itemize}
+
+\section{矩陣鏈乘}
+\label{sec:ivdp-matrix}
+
+演算法課本講區間 DP，幾乎都從\textbf{矩陣鏈乘}（matrix-chain multiplication）
+開始。 它和作業簿一樣看最後一次合併，差別在最後一次的花費會隨切點改變。 這一
+節用它把切點的寫法再走一遍，並補上前面沒做的一件事：除了最小的花費，也把最好
+的做法印出來。
+
+\subsection{乘的順序會影響花費}
+
+沒學過矩陣也能讀這一節，只要知道兩條規則。 一個 $p \times q$ 的\textbf{矩陣}
+是排成 $p$ 列、$q$ 行的一張數字表。
+
+\begin{itemize}
+\item $p \times q$ 的矩陣只能乘上 $q \times r$ 的矩陣（前一個的行數等於後一個的
+列數），結果是 $p \times r$。
+\item 結果的每一格，是拿前一個的一列和後一個的一行逐項相乘再加起來，要做 $q$
+次乘法。 結果有 $p \times r$ 格，所以一共做 $p \cdot q \cdot r$ 次乘法。
+\end{itemize}
+
+矩陣乘法可以任意加括號，$(AB)C$ 和 $A(BC)$ 算出來的矩陣相同，但做的乘法次數
+可能差很多。 設 $A$ 是 $2 \times 20$、$B$ 是 $20 \times 3$、$C$ 是
+$3 \times 15$：
+
+\begin{center}
+\begin{tabular}{lllc}
+\toprule
+算法 & 第一次 & 第二次 & 總次數 \\
+\midrule
+$(AB)C$ & $AB$：$2 \cdot 20 \cdot 3 = 120$，得到 $2 \times 3$ & $2 \cdot 3 \cdot 15 = 90$ & $210$ \\
+$A(BC)$ & $BC$：$20 \cdot 3 \cdot 15 = 900$，得到 $20 \times 15$ & $2 \cdot 20 \cdot 15 = 600$ & $1500$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+先乘 $AB$，中間產物只有 $2 \times 3$；先乘 $BC$，會先做出一張 $20 \times 15$
+的大表，下一次乘法也跟著貴。 結果一樣，次數差了七倍多。 電腦繪圖和科學計算
+常要把一長串矩陣乘起來，矩陣一大，順序選得好不好，計算時間會差好幾倍。
+
+問題是這樣：$n$ 個矩陣 $A_1, A_2, \ldots, A_n$ 要依序相乘，第 $i$ 個是
+$d_{i-1} \times d_i$。 相鄰兩個的維度本來就要接得上，所以 $n + 1$ 個數字
+$d_0, d_1, \ldots, d_n$ 就描述了全部。 矩陣的先後不能換，只能決定括號怎麼加。
+求最少的乘法次數，並印出一種達到它的加括號方式。
+
+最直接的做法是試遍所有加括號的方式。 $3$ 個矩陣有 $2$ 種，$4$ 個有 $5$ 種，
+$10$ 個有 $4862$ 種，$20$ 個超過 $17$ 億種（這串數叫\textbf{卡特蘭數}，Catalan
+number），只能拿來對拍。
+
+貪心也不行。 以 $d = 5, 8, 6, 2, 7$ 為例，四個矩陣是 $5 \times 8$、
+$8 \times 6$、$6 \times 2$、$2 \times 7$。 「每次先做目前最便宜的那一次相鄰
+乘法」會先乘 $A_3 A_4$（$6 \cdot 2 \cdot 7 = 84$），接著 $A_1 A_2$（$240$），
+最後 $5 \cdot 6 \cdot 7 = 210$，總共 $534$，比老老實實從左乘到右的 $370$ 還
+多。 最好的做法是 $(A_1 (A_2 A_3)) A_4$，只要 $96 + 80 + 70 = 246$。 第一步
+貪便宜，把最小的維度 $2$ 消掉了；留著它，後面每一次乘法都會乘上這個 $2$，反
+而便宜。
+
+\subsection{狀態與轉移}
+
+和作業簿一樣看\textbf{最後一次}乘法。 把 $A_l$ 到 $A_r$ 乘起來，最後一次一定
+是「左邊一串的乘積」乘上「右邊一串的乘積」：$(A_l \cdots A_k)(A_{k+1} \cdots A_r)$。
+左邊的乘積是 $d_{l-1} \times d_k$，右邊是 $d_k \times d_r$，這一次乘法花
+$d_{l-1} \cdot d_k \cdot d_r$。 左右兩串各自怎麼加括號互不影響，都用最好的。
+
+\begin{center}
+\fbox{\parbox{0.86\linewidth}{\centering
+$\mathrm{dp}(l, r)$：把 $A_l$ 到 $A_r$ 乘起來，最少要做幾次乘法。}}
+\end{center}
+
+\[
+\mathrm{dp}(l, r) = \min_{l \le k < r} \bigl(\mathrm{dp}(l, k) + \mathrm{dp}(k + 1, r) + d_{l-1} \cdot d_k \cdot d_r\bigr),
+\qquad \mathrm{dp}(i, i) = 0.
+\]
+
+\begin{center}
+\begin{tikzpicture}[x=1.5cm, y=1cm]
+\foreach \v [count=\i] in {5 \times 8, 8 \times 6, 6 \times 2, 2 \times 7} {
+  \node[cell, minimum width=1.3cm] at (\i,0) {$\v$};
+  \node[idxlbl] at (\i,0.7) {$A_{\i}$};
+}
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, draw=memStroke]
+  (0.55,-0.6) -- (3.45,-0.6) node[midway, below=6pt, font=\small] {$A_1 A_2 A_3$：$5 \times 2$};
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, draw=optStroke]
+  (3.55,-0.6) -- (4.45,-0.6) node[midway, below=6pt, font=\small] {$2 \times 7$};
+\draw[dashed, black!50] (3.5,0.55) -- (3.5,-1.4);
+\node[font=\small, right] at (4.7,0) {$k = 3$：最後一次花 $5 \cdot 2 \cdot 7 = 70$};
+\end{tikzpicture}
+\diagcaption{最後一次乘法切在 $k = 3$。 左邊三個的乘積是 $d_0 \times d_3 = 5 \times 2$，
+右邊是 $d_3 \times d_4 = 2 \times 7$。}
+\label{fig:ivdp-matrix}
+\end{center}
+
+和作業簿比，差別只有一處：作業簿最後一次的花費是整段的總本數，和 $k$ 無關，
+可以放在 $\min$ 外面；這裡的 $d_{l-1} \cdot d_k \cdot d_r$ 跟著 $k$ 變，要放
+在裡面一起比。 計算順序仍然是長度由短到長，迴圈和範例~\ref{ex:ivdp-merge}
+一模一樣，時間 $O(n^3)$（最內層大約 $n^3/6$ 次），表格 $O(n^2)$。 $n$ 到幾百
+都很快。
+
+以 $d = 5, 8, 6, 2, 7$ 填表：
+
+\begin{center}
+\begin{tabular}{ccl}
+\toprule
+長度 & 區間 & 各個切點 $k$ 的 $\mathrm{dp}(l, k) + \mathrm{dp}(k + 1, r) + d_{l-1} d_k d_r$ \\
+\midrule
+2 & $[1, 2]$ & $k = 1$：$0 + 0 + 240$ \quad 所以 $\mathrm{dp} = 240$ \\
+2 & $[2, 3]$ & $k = 2$：$0 + 0 + 96$ \quad 所以 $\mathrm{dp} = 96$ \\
+2 & $[3, 4]$ & $k = 3$：$0 + 0 + 84$ \quad 所以 $\mathrm{dp} = 84$ \\
+3 & $[1, 3]$ & $k = 1$：$0 + 96 + 80 = 176$；$k = 2$：$240 + 0 + 60 = 300$ \quad 取 $k = 1$ \\
+3 & $[2, 4]$ & $k = 2$：$0 + 84 + 336 = 420$；$k = 3$：$96 + 0 + 112 = 208$ \quad 取 $k = 3$ \\
+4 & $[1, 4]$ & $k = 1$：$488$；$k = 2$：$240 + 84 + 210 = 534$；$k = 3$：$176 + 0 + 70 = 246$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+$k = 1$ 那一格是 $0 + 208 + 5 \cdot 8 \cdot 7 = 488$。 答案 $\mathrm{dp}(1, 4) = 246$，
+在 $k = 3$ 取到。
+
+\subsection{還原加括號的方式}
+
+表格只算出最少 $246$ 次，沒有說括號怎麼加。 做法和第~2~章從表格還原一樣：
+填表時多開一張表 $\mathrm{cut}(l, r)$，記下 $\mathrm{dp}(l, r)$ 是在哪個 $k$
+取到最小的。 印的時候從整段 $[1, n]$ 開始：
+
+\begin{itemize}
+\item 只有一個矩陣（$l = r$），印 $A_l$。
+\item 否則 $k = \mathrm{cut}(l, r)$，印「左括號、$[l, k]$ 的寫法、$[k + 1, r]$
+的寫法、右括號」，左右兩段再用同樣的方法印。
+\end{itemize}
+
+範例的表裡 $\mathrm{cut}(1, 4) = 3$，所以整段是 $(\,[1, 3]\ A_4)$；
+$\mathrm{cut}(1, 3) = 1$，$[1, 3]$ 是 $(A_1\ [2, 3])$；$\mathrm{cut}(2, 3) = 2$，
+$[2, 3]$ 是 $(A_2\ A_3)$。 合起來就是 $((A_1 (A_2 A_3)) A_4)$。 遞迴每一層區間至
+少短 $1$，最多 $n$ 層。
+
+不開 $\mathrm{cut}$ 也可以：印 $[l, r]$ 時重新試每個 $k$，找一個讓
+$\mathrm{dp}(l, k) + \mathrm{dp}(k + 1, r) + d_{l-1} d_k d_r$ 剛好等於
+$\mathrm{dp}(l, r)$ 的。 多花一點時間，省一張表。
+
+\begin{example}[label=ex:ivdp-matrix]{cpp}{(matrix\_chain.cpp) 矩陣鏈乘的最少乘法次數與加括號方式}
+#include <climits>
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+vector<vector<int>> cut;   // cut[l][r]：dp[l][r] 取到最小時，最後一次乘法的切點
+
+// 照 cut 表寫出 A_l 到 A_r 的加括號方式
+string paren(int l, int r) {
+    if (l == r) {
+        return "A" + to_string(l);
+    }
+    int k = cut[l][r];
+    return "(" + paren(l, k) + " " + paren(k + 1, r) + ")";
+}
+
+int main() {
+    int n;
+    cin >> n;
+    vector<long long> d(n + 1);   // 第 i 個矩陣是 d[i - 1] x d[i]
+    for (int i = 0; i <= n; i++) {
+        cin >> d[i];
+    }
+    // dp[l][r]：把 A_l 到 A_r 乘起來的最少乘法次數
+    vector<vector<long long>> dp(n + 1, vector<long long>(n + 1, 0));
+    cut.assign(n + 1, vector<int>(n + 1, 0));
+    for (int len = 2; len <= n; len++) {
+        for (int l = 1; l + len - 1 <= n; l++) {
+            int r = l + len - 1;
+            dp[l][r] = LLONG_MAX;
+            for (int k = l; k < r; k++) {     // 最後一次：(A_l..A_k)(A_k+1..A_r)
+                long long cost = dp[l][k] + dp[k + 1][r] + d[l - 1] * d[k] * d[r];
+                if (cost < dp[l][r]) {
+                    dp[l][r] = cost;
+                    cut[l][r] = k;
+                }
+            }
+        }
+    }
+    cout << dp[1][n] << '\n';
+    cout << paren(1, n) << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 \\
+5 8 6 2 7 \\
+}{
+246 \\
+((A1 (A2 A3)) A4) \\
+}
+
+\begin{itemize}
+\item 輸入先給 $n$，再給 $n + 1$ 個維度。 \texttt{d} 從 $0$ 開始編號、矩陣從
+$1$ 開始，第 $l$ 個矩陣的列數是 \texttt{d[l - 1]}，這個 $-1$ 是最常寫錯的地方。
+\item 乘法次數很容易超過 \texttt{int}：維度到 $1000$ 時，一次乘法就可能是
+$10^9$ 次。 \texttt{d} 直接開 \texttt{long long}，三個數相乘時就不會先在
+\texttt{int} 裡溢位。
+\item 用嚴格的 \texttt{<} 更新，幾個切點一樣好時留下最小的 $k$。 最好的加括號
+方式可能不只一種，題目要求特定的那一種時，要照題目的規定挑。
+\end{itemize}
+
+同樣的模型也出現在別的地方：把一個凸多邊形切成三角形，每個三角形的花費由三
+個頂點決定；資料庫要把好幾張表依序合併，每次合併的成本看兩邊的大小。 只要
+是「一排東西只能相鄰合併，合併的花費看左右兩塊的邊界」，就可以照這一節的寫法。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{維度差一}：把 \texttt{d[l - 1]} 寫成 \texttt{d[l]}，範例的輸入印出
+\texttt{312}，正確答案是 $246$。 程式把第 $l$ 個矩陣的行數當成列數，算的是另
+一組矩陣。 手算一個 $n = 2$ 的例子（答案就是 $d_0 d_1 d_2$）就能抓到。
+\item \textbf{最後一次的花費放在 $\min$ 外面}：照作業簿的寫法，先找出
+\texttt{dp[l][k] + dp[k + 1][r]} 最小的 $k$，再加上那個 $k$ 的
+$d_{l-1} d_k d_r$。 輸入 \texttt{3}、\texttt{2 1 3 4} 印出 \texttt{30}，正確答
+案是 $20$：$(A_1 A_2)$ 只花 $6$，所以選了 $k = 2$，但最後一次要花
+$2 \cdot 3 \cdot 4 = 24$；$k = 1$ 的 $12 + 2 \cdot 1 \cdot 4 = 20$ 才是最好的。
+範例的輸入碰巧印出正確的 $246$，只拿範例測不出這個錯。
 \end{itemize}
 
 \section{括號型：最左邊的和誰一組}
@@ -994,14 +1216,14 @@ int main() {
 \section{什麼時候用區間 DP}
 \label{sec:ivdp-when}
 
-這一章的四個問題，轉移有三種形狀：
+這一章的問題，轉移有三種形狀：
 
 \begin{center}
 \begin{tabular}{p{0.2\linewidth}p{0.4\linewidth}p{0.3\linewidth}}
 \toprule
 形狀 & 轉移在看什麼 & 本章的例子 \\
 \midrule
-切點 & 最後一次合併的分界，或第一個動作的位置；切開後左右兩段獨立 & 作業簿、拆攤位 \\
+切點 & 最後一次合併的分界，或第一個動作的位置；切開後左右兩段獨立 & 作業簿、拆攤位、矩陣鏈乘 \\
 配對 & 最左邊的那一個和誰一組；把區間分成裡面和右邊 & 兩兩離隊 \\
 兩端 & 最外面兩個怎麼處理：拆左、拆右、或兩端配對 & 回文表、拆旗換色 \\
 \bottomrule
@@ -1046,7 +1268,7 @@ int main() {
 $0$ & 第~\ref{sec:ex-ivdp-demolish}、\ref{sec:ex-ivdp-pairs}、\ref{sec:ex-ivdp-flags}~節 \\
 轉移漏了選擇 & 用貪心；只配原本相鄰的；兩端同色就直接配對；忘了換色 &
 第~\ref{sec:ex-ivdp-demolish}、\ref{sec:ex-ivdp-pairs}、\ref{sec:ex-ivdp-flags}~節 \\
-這一步的花費 & 忘了加總本數；區塊長度用整排的 $n$ & 第~\ref{sec:ivdp-basic}、\ref{sec:ex-ivdp-demolish}~節 \\
+這一步的花費 & 忘了加總本數；區塊長度用整排的 $n$；矩陣的維度差一，或把隨切點變的花費放在 $\min$ 外面 & 第~\ref{sec:ivdp-basic}、\ref{sec:ex-ivdp-demolish}、\ref{sec:ivdp-matrix}~節 \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -1111,6 +1333,21 @@ $n$ 疊和第 $1$ 疊相鄰」。 這樣對嗎？
 \item 為什麼「一定有一個縫從來沒被跨過」？ 如果題目改成每次可以合併\textbf{三
 疊}相鄰的作業簿（$n$ 是奇數），這個說法還成立嗎？
 \end{enumerate}
+
+\item 四個矩陣的維度是 $d = 3, 2, 6, 8, 7$，也就是 $3 \times 2$、$2 \times 6$、
+$6 \times 8$、$8 \times 7$。
+\begin{enumerate}
+\item 照長度由短到長，手算每一格 $\mathrm{dp}(l, r)$ 和 $\mathrm{cut}(l, r)$。
+\item 照 $\mathrm{cut}$ 寫出加括號的方式，並驗算它的乘法次數。
+\end{enumerate}
+
+\item 矩陣鏈乘的暴力解與貪心。
+\begin{enumerate}
+\item 四個矩陣 $A_1 A_2 A_3 A_4$ 有幾種加括號的方式？ 全部列出來。
+\item 有人提議：「每次把目前最大的中間維度消掉，也就是先做中間維度最大的那
+一次乘法。」 三個矩陣 $d = 2, 5, 9, 4$ 時，這條規則做幾次乘法？ 最少是幾次？
+規則錯在哪裡？
+\end{enumerate}
 \end{drills}
 
 \section{實作練習}
@@ -1149,7 +1386,8 @@ $n$ 疊和第 $1$ 疊相鄰」。 這樣對嗎？
 \item 能用「長度由短到長」的三層迴圈填區間 DP 的表，並說得出 $l$、$r$ 都由小
 到大為什麼錯。
 \item 能從「最後一次合併」「第一個動作」「最左邊的和誰一組」「最外面兩個怎麼處
-理」中挑出合適的一種，寫出轉移，並處理空區間和奇偶。
+理」中挑出合適的一種，寫出轉移，並處理空區間和奇偶；題目要求印出做法
+時，能另外記下每一段的切點，再用遞迴還原（例如矩陣鏈乘的加括號方式）。
 \item 能算出區間 DP 最內層的執行次數（例如 $(n^3 - n)/6$）和表格的記憶體，
 判斷給定的 $n$ 來不來得及。
 \item 遇到排成一圈的題目，能把陣列接一倍，取所有長度 $n$ 的區間的最佳值。
@@ -1226,5 +1464,39 @@ $g(3, 5)$ 是 \texttt{aca}，等於 $3$。 所以 $g(1, 6) = 3 + 2 = 5$，回文
 以剩下一個縫從來沒被跨過。 每次合併三疊時，一次讓兩個縫消失，從 $n$ 疊合成
 一疊要合併 $(n - 1)/2$ 次，消失 $n - 1$ 個縫，仍然剩下一個，說法照樣成立：
 從那個縫剪開，同樣可以接一倍處理。
+\end{enumerate}
+
+\item
+\begin{enumerate}
+\item 長度 $2$：$\mathrm{dp}(1, 2) = 3 \cdot 2 \cdot 6 = 36$、
+$\mathrm{dp}(2, 3) = 2 \cdot 6 \cdot 8 = 96$、$\mathrm{dp}(3, 4) = 6 \cdot 8 \cdot 7 = 336$，
+切點就是左端。 長度 $3$：$\mathrm{dp}(1, 3) = \min(0 + 96 + 48,\ 36 + 0 + 144) = 144$，
+$\mathrm{cut} = 1$；$\mathrm{dp}(2, 4) = \min(0 + 336 + 84,\ 96 + 0 + 112) = 208$，
+$\mathrm{cut} = 3$。 長度 $4$：$k = 1$ 是 $0 + 208 + 42 = 250$，$k = 2$ 是
+$36 + 336 + 126 = 498$，$k = 3$ 是 $144 + 0 + 168 = 312$，所以
+$\mathrm{dp}(1, 4) = 250$，$\mathrm{cut} = 1$。
+\item $\mathrm{cut}(1, 4) = 1$，$\mathrm{cut}(2, 4) = 3$，$\mathrm{cut}(2, 3) = 2$，
+寫成 $(A_1 ((A_2 A_3) A_4))$。 驗算：$A_2 A_3$ 花 $96$，得到 $2 \times 8$；再乘
+$A_4$ 花 $2 \cdot 8 \cdot 7 = 112$，得到 $2 \times 7$；最後 $A_1$ 乘上它花
+$3 \cdot 2 \cdot 7 = 42$。 總共 $96 + 112 + 42 = 250$。 這一組的最小維度 $2$ 在
+$A_1$ 和 $A_2$ 之間，最好的做法把它留到最後一次乘法。
+\end{enumerate}
+
+\item
+\begin{enumerate}
+\item $5$ 種：
+\begin{gather*}
+((A_1 A_2) A_3) A_4,\qquad (A_1 (A_2 A_3)) A_4,\qquad (A_1 A_2)(A_3 A_4),\\
+A_1 ((A_2 A_3) A_4),\qquad A_1 (A_2 (A_3 A_4)).
+\end{gather*}
+依最後一次乘法的切點分：
+$k = 1$ 時右邊三個有 $2$ 種，$k = 2$ 時左右各 $1$ 種，$k = 3$ 時左邊三個有
+$2$ 種，$2 + 1 + 2 = 5$。
+\item 中間維度是 $5$ 和 $9$，規則先消掉 $9$，也就是先算 $A_2 A_3$：
+$5 \cdot 9 \cdot 4 = 180$，再 $2 \cdot 5 \cdot 4 = 40$，共 $220$。 先算
+$A_1 A_2$ 是 $2 \cdot 5 \cdot 9 = 90$，再 $2 \cdot 9 \cdot 4 = 72$，共 $162$，
+這才是最少的。 消掉一個維度的那次乘法，花費還要乘上它左右兩個維度；規則只看
+要消掉的那個數，沒看另外兩個有多大。 和第~\ref{sec:ivdp-matrix}~節的「先做最
+便宜的」一樣，只看眼前一步的規則都可能錯，要靠區間 DP 比過每個切點。
 \end{enumerate}
 \end{enumerate}
