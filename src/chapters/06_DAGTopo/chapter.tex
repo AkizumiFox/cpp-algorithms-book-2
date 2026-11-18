@@ -55,7 +55,7 @@
 這一章先把拓樸順序講清楚，接著是兩種排出它的方法：延續第 1 本第~6~章的 Kahn 演算
 法，以及用第 1 本第~11~章的深度優先搜尋。 兩種方法都能順便發現圖上有沒有環。 然後
 回到第 1 本第~9~章，在輸入給的 DAG 上做動態規劃：最長路、路徑數，以及專案排程裡的
-關鍵路徑。 最後一節求編號字典序最小的拓樸順序，要把佇列換成優先佇列。
+關鍵路徑，並對照資料結構課本裡 AOV 網路、AOE 網路的說法。 最後一節求編號字典序最小的拓樸順序，要把佇列換成優先佇列。
 
 用到的語法：\texttt{queue} 和 \texttt{priority\_queue} 在銜接書第~8~章，自
 訂成「小的在上」的寫法也在那裡；鄰接串列的存法在第 1 本第~11~章。 沒讀過銜接書
@@ -955,6 +955,118 @@ $1$、$3$、$5$，就是上面找到的關鍵路徑。
 所以全部的時間就是這張圖上的\textbf{最長路}，關鍵路徑就是最長的那一條。 這
 和夜市的例題是同一件事：點上有權重，沿著拓樸順序取最大值。
 \end{itemize}
+
+\subsection{資料結構課本的說法：AOV 網路與 AOE 網路}
+\label{sec:aov-aoe}
+
+大學的資料結構課本（研究所考試的參考書也是）講這一節的內容時，用的是另一套名
+字，圖的畫法也不太一樣。 算的東西和上面完全相同，這裡把兩套說法對照一次，在
+課堂上遇到時就認得出來。
+
+\textbf{AOV 網路。} 像圖~\ref{fig:hotpot} 那樣，每件工作畫成一個點、先後關係
+畫成邊，課本叫它\textbf{AOV 網路}（activity on vertex network，頂點工作網路）。
+名字裡的 activity 就是一件工作，課本譯成\textbf{活動}，下面也跟著這樣叫。
+課本在這種圖上做的事就是拓樸排序：排出一個可行的做事順序；排不出來表示圖上
+有環，工作的先後規定互相矛盾。 本章第~\ref{sec:kahn}、\ref{sec:dfs-topo}~節
+做的正是這件事。
+
+\textbf{AOE 網路。} 另一種畫法反過來：每個活動畫成一條\textbf{邊}，活動的時間
+寫在邊上；點代表\textbf{事件}（event），也就是「某幾個活動都做完了，接下來的
+活動可以開始」的那一刻。 這種圖叫\textbf{AOE 網路}（activity on edge network，
+邊工作網路），通常有一個代表專案開始的起點、一個代表專案完成的終點。 火鍋畫
+成 AOE 網路是這樣：
+
+\begin{center}
+\begin{tikzpicture}[x=1.3cm, y=1cm]
+\node[tv] (v0) at (0,0) {$v_0$};
+\node[tv] (v1) at (2.6,1.5) {$v_1$};
+\node[tv] (v2) at (2.6,-1.5) {$v_2$};
+\node[tv] (v3) at (4.8,-0.5) {$v_3$};
+\node[tv] (v4) at (7.6,0) {$v_4$};
+\node[tv] (v5) at (10,0) {$v_5$};
+\draw[tahl] (v0) -- node[sloped, above, font=\small] {買菜 40} (v1);
+\draw[ta] (v0) -- node[sloped, below, font=\small] {借電磁爐 20} (v2);
+\draw[ta, rounded corners=6pt] (v0.south) -- (0,-2.4) -- node[above, font=\small] {擺碗筷 5} (7.6,-2.4) -- (v4.south);
+\draw[ta] (v1) to[bend left=18] node[above, font=\small] {洗菜切菜 30} (v4);
+\draw[ta] (v1) to[bend right=4] node[above right, pos=0.35, font=\small] {調沾醬 10} (v4);
+\draw[tahl, dashed] (v1) -- node[left, pos=0.4, font=\small] {0} (v3);
+\draw[ta, dashed] (v2) -- node[below right, pos=0.3, font=\small] {0} (v3);
+\draw[tahl] (v3) -- node[below right, pos=0.4, font=\small] {煮湯底 50} (v4);
+\draw[tahl] (v4) -- node[above, font=\small] {開火上桌 5} (v5);
+\end{tikzpicture}
+\diagcaption{火鍋的 AOE 網路。 $v_0$ 開始，$v_1$ 菜買回來了，$v_2$ 電磁爐借到
+了，$v_3$ 可以煮湯底，$v_4$ 可以開火，$v_5$ 開飯。 虛線是時間 $0$ 的虛擬活動，
+橘色是關鍵路徑。}
+\label{fig:hotpot-aoe}
+\end{center}
+
+圖裡的兩條虛線是\textbf{虛擬活動}（dummy activity），時間是 $0$。 需要它們，
+是因為煮湯底要等菜和電磁爐都到，洗菜切菜卻只等菜。 如果把「菜買回來」和「電
+磁爐借到」畫成同一個事件，洗菜切菜就被迫等電磁爐，意思變了。 一般地說，把
+AOV 網路的每個點拆成「開始」和「完成」兩個事件，中間連一條邊放工作時間，原
+本的先後關係改成時間 $0$ 的邊，就得到一張 AOE 網路，只是虛擬活動多一點。 所
+以兩種畫法描述的是同一件事。
+
+在 AOE 網路上，課本先算每個事件的兩個時刻，再算每個活動的兩個時刻：
+
+\begin{itemize}
+\item 事件 $v$ 的\textbf{最早發生時間} $ve(v)$：照拓樸順序往前推，取所有指進
+來的邊 $u \to v$ 的 $ve(u) + \text{時間}$ 的最大值，起點是 $0$。
+\item 事件 $v$ 的\textbf{最晚發生時間} $vl(v)$：照拓樸順序倒過來，取所有指出
+去的邊 $v \to w$ 的 $vl(w) - \text{時間}$ 的最小值，終點等於 $ve(\text{終點})$。
+\item 活動 $u \to v$ 的\textbf{最早開始時間} $e = ve(u)$，\textbf{最晚開始時間}
+$l = vl(v) - \text{時間}$。 $l - e$ 就是寬裕時間；$l = e$ 的活動叫\textbf{關
+鍵活動}（critical activity），全由關鍵活動組成、從起點到終點的路徑就是關鍵路
+徑。
+\end{itemize}
+
+火鍋的六個事件，$ve$ 依序是 $0, 40, 20, 40, 90, 95$，$vl$ 依序是
+$0, 40, 40, 40, 90, 95$。 由它們算出每個活動的 $e$、$l$：
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+活動（邊） & $e = ve(\text{起})$ & $l = vl(\text{迄}) - \text{時間}$ & $l - e$ & 範例~\ref{ex:critical} 的輸出 \\
+\midrule
+買菜 $v_0 \to v_1$ & $0$ & $40 - 40 = 0$ & $0$ & \texttt{3 0 0 0} \\
+借電磁爐 $v_0 \to v_2$ & $0$ & $40 - 20 = 20$ & $20$ & \texttt{6 0 20 20} \\
+擺碗筷 $v_0 \to v_4$ & $0$ & $90 - 5 = 85$ & $85$ & \texttt{4 0 85 85} \\
+洗菜切菜 $v_1 \to v_4$ & $40$ & $90 - 30 = 60$ & $20$ & \texttt{2 40 60 20} \\
+調沾醬 $v_1 \to v_4$ & $40$ & $90 - 10 = 80$ & $40$ & \texttt{7 40 80 40} \\
+煮湯底 $v_3 \to v_4$ & $40$ & $90 - 50 = 40$ & $0$ & \texttt{5 40 40 0} \\
+開火上桌 $v_4 \to v_5$ & $90$ & $95 - 5 = 90$ & $0$ & \texttt{1 90 90 0} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+每一列都和範例~\ref{ex:critical} 印出的「最早開始、最晚開始、寬裕時間」相同。
+程式裡的 \texttt{es} 就是「這件工作可以開始」那個事件的 $ve$，\texttt{lf}
+就是「這件工作做完」那個事件的 $vl$。 換句話說，本章的程式是直接在 AOV 網路上
+算，省掉了拆事件和虛擬活動。
+
+兩套名字的對照：
+
+\begin{center}
+\begin{tabular}{p{0.38\linewidth}p{0.52\linewidth}}
+\toprule
+本章的說法 & 資料結構課本常見的說法 \\
+\midrule
+工作畫成點的 DAG & AOV 網路（頂點工作網路） \\
+工作畫成邊、點是事件的 DAG & AOE 網路（邊工作網路） \\
+一件工作 & 活動（activity） \\
+最早開始、最晚開始 & 活動的最早開始時間 $e$、最晚開始時間 $l$；事件的最早、最晚發生時間 $ve$、$vl$ \\
+寬裕時間 & slack，$l - e$；專案管理裡叫 float \\
+寬裕時間 $0$ 的工作 & 關鍵活動（critical activity） \\
+關鍵路徑 & critical path，有的譯本寫「臨界路徑」 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+課本常接著問：要提早完工，該縮短哪些活動？ 只有縮短關鍵活動才有用，但不一定
+夠。 如果有兩條關鍵路徑，只縮其中一條上的活動，另一條還是一樣長，完工時間不
+變；要縮兩條共用的活動，或兩條都縮。 縮短之後關鍵路徑也可能換成另一條，要重
+新算一次。 工業工程和專案管理把這整套方法叫\textbf{要徑法}（critical path
+method，CPM）。
 
 \subsection{什麼時候用、什麼時候不能用}
 
