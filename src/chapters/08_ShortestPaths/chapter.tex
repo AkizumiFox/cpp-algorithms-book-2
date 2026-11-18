@@ -1,0 +1,1680 @@
+\chapter{加權圖的最短路徑}
+\label{ch:sp}
+
+% 本章的圖共用的樣式（點、已定案的點、剛處理的點、灰掉的點、邊、最短路徑樹的邊、
+% 有向邊、強調的有向邊、權重、距離標籤）
+\tikzset{
+    spv/.style={circle, draw=black!60, thick, minimum size=0.68cm, inner sep=0pt, font=\small},
+    spvdone/.style={spv, draw=memStroke, fill=memFill},
+    spvnow/.style={spv, draw=optStroke, fill=optFill},
+    spvgray/.style={spv, draw=black!35, text=black!45, dashed},
+    spe/.style={thick, draw=black!55},
+    spetree/.style={line width=2.4pt, draw=memStroke},
+    spd/.style={-{Stealth[length=2.2mm]}, thick, draw=black!60, shorten >=1pt},
+    spdhl/.style={-{Stealth[length=2.2mm]}, very thick, draw=optStroke, shorten >=1pt},
+    spdgray/.style={-{Stealth[length=2.2mm]}, thick, draw=black!35, dashed, shorten >=1pt},
+    spw/.style={font=\scriptsize, fill=white, inner sep=1pt},
+    spdist/.style={font=\small\bfseries, text=coreStroke},
+}
+
+% 章首的外送地圖。#1：「點/距離/樣式/距離標籤的位置」的清單；#2：要畫粗的邊（a/b）。
+\newcommand{\spmapgraph}[2]{%
+    \foreach \v/\x/\y in {1/0/1, 2/1.5/2, 3/1.5/0, 4/3/2, 5/3/0, 6/4.5/1} {
+        \coordinate (q\v) at (\x,\y);
+    }
+    \foreach \v/\d/\s/\p in {#1} {
+        \node[\s, label={[spdist]\p:\d}] (n\v) at (q\v) {\v};
+    }
+    \foreach \a/\b in {#2} {
+        \draw[spetree] (n\a) -- (n\b);
+    }
+    \foreach \a/\b/\w in {1/2/7, 1/3/2, 2/3/3, 2/4/2, 3/5/7, 4/5/1, 4/6/6, 5/6/2} {
+        \draw[spe] (n\a) -- node[spw] {\w} (n\b);
+    }
+}
+
+晚餐時段，便當店接到一張外送單。 下圖是附近的路口和道路，店在路口 $1$，客
+人家在路口 $6$，道路都是雙向的，邊上的數字是騎車通過這條路要幾分鐘。 從店
+到客人家最快要幾分鐘？ 往下讀之前，先在圖上找一條最快的路線，並且數一數它
+經過幾條路。
+
+\begin{center}
+\begin{tikzpicture}[x=1.25cm, y=1.05cm]
+\spmapgraph{1//spv/left, 2//spv/above, 3//spv/below, 4//spv/above, 5//spv/below, 6//spv/right}{}
+\end{tikzpicture}
+\diagcaption{外送的地圖。 店在路口 $1$，客人家在路口 $6$，數字是騎車要幾分鐘。}
+\label{fig:sp-map}
+\end{center}
+
+從 $1$ 到 $6$ 最少要經過三條路，三條路的走法有兩種：$1 \to 2 \to 4 \to 6$
+要 $7 + 2 + 6 = 15$ 分鐘，$1 \to 3 \to 5 \to 6$ 要 $2 + 7 + 2 = 11$ 分鐘。
+最快的走法是 $1 \to 3 \to 2 \to 4 \to 5 \to 6$，經過五條路，只要
+$2 + 3 + 2 + 1 + 2 = 10$ 分鐘。 《C++ 演算法解題 1：APCS 實作題核心》（以下簡
+稱第 1 本）第~11~章的 BFS 數的是「經過幾條邊」，在這張圖上會找到三條路的走
+法，答案是錯的。 邊上有數字、要比的是數字總和的圖，就是這一章的主題。
+
+這一章先講最常用的 \textbf{Dijkstra 演算法}和怎麼印出路線，再講幾種建圖方
+法：只有 $0$、$1$ 兩種代價的 0/1 BFS、虛擬起點、反向圖、狀態圖。 權重可以是負
+數時改用 \textbf{Bellman--Ford 演算法}，它也能找出負環；要算每兩點之間的距離，
+用 \textbf{Floyd--Warshall 演算法}。 最後一節整理怎麼從資料範圍選演算法。
+
+這一章用到第 1 本第~11~章的 BFS、反向圖和多源 BFS，第 1 本第~12~章的狀態
+BFS，第 1 本 6.5 節的 \texttt{priority\_queue} 和「先不刪」的寫法，以及本書
+第~6~章在 DAG 上算最短路。 語法上需要 \texttt{pair} 和結構化綁定（銜接書第~8~
+章）、「小的在上」的 \texttt{priority\_queue}（銜接書 8.6 節）、
+\texttt{deque}（銜接書 8.5 節）。
+
+\section{BFS 為什麼不夠}
+\label{sec:sp-why}
+
+先把名詞說清楚。 每條邊上有一個數字的圖叫\textbf{加權圖}（weighted graph），
+那個數字叫邊的\textbf{權重}（weight），可以是時間、距離、費用。 一條路徑的
+\textbf{長度}是路上每條邊的權重加起來，不是邊的條數。 從 $s$ 到 $v$ 的所有路
+徑裡長度最小的叫\textbf{最短路徑}（shortest path），它的長度叫 $s$ 到 $v$ 的
+\textbf{最短距離}，記作 $\delta(v)$；走不到時 $\delta(v) = \infty$。 從一個
+起點求出到每個點的最短距離，叫\textbf{單源最短路徑}（single-source shortest
+paths）。 這一章前七節都在處理這個問題，第~\ref{sec:sp-fw}~節才處理「每兩點
+之間」。
+
+存圖仍然用第 1 本第~11~章的鄰接串列，只是每一格多存權重：
+
+\begin{code}{cpp}{有權重的鄰接串列}
+vector<vector<pair<int, long long>>> adj(n + 1);   // adj[u] 裡放 (v, w)
+adj[u].push_back({v, w});                          // 一條 u -> v、權重 w 的邊
+\end{code}
+
+\subsection{BFS 錯在哪裡}
+
+第 1 本第~11~章說明 BFS 求出最短距離時，用到一件事：點被第一次看到的時候，
+就是從離起點最近的那一層看到的，之後再看到它只會更遠。 這件事靠的是「每條邊
+都算一步」。 在圖~\ref{fig:sp-map} 上，BFS 從 $4$ 或 $5$ 第一次看到 $6$，
+這時已經是三條邊了；可是經過五條邊的那條路反而比較短。 邊的長度不同時，「先
+看到」和「比較近」就不是同一件事。
+
+有一個笨方法可以讓 BFS 重新變對：把權重 $w$ 的邊拆成 $w$ 條長度 $1$ 的小
+段，中間插 $w - 1$ 個假的點，再做 BFS。 這樣每一步都是一分鐘，BFS 一層一層往
+外，就是時間一分鐘一分鐘往後。 在圖~\ref{fig:sp-map} 上，真正的路口被走到的
+順序是 $1$（第 $0$ 分鐘）、$3$（第 $2$ 分鐘）、$2$（第 $5$ 分鐘）、$4$（第
+$7$ 分鐘）、$5$（第 $8$ 分鐘）、$6$（第 $10$ 分鐘），剛好是最短距離由小到大。
+
+權重到 $10^9$ 時，假點多到存不下，這個方法不能真的用。 但它說明了要做的事：
+照最短距離\textbf{由小到大}一個一個確定真正的點。 中間那些假點只是在「等時間
+過去」，可以跳過：每次直接找出下一個會被走到的真正的點。 下一節的 Dijkstra
+演算法做的就是這件事。
+
+\subsection{鬆弛}
+
+找「下一個會被走到的點」需要一個暫時的答案。 每個點 $v$ 記一個
+\texttt{dist[v]}，表示「目前找到的、從起點到 $v$ 最短的走法」的長度，一開始起
+點是 $0$，其他都是無限大。 已經知道到 $u$ 可以花 \texttt{dist[u]}，而且有一
+條 $u \to v$、權重 $w$ 的邊，那麼到 $v$ 最多只要 \texttt{dist[u] + w}：
+
+\begin{code}{cpp}{鬆弛一條邊}
+if (dist[u] + w < dist[v]) {
+    dist[v] = dist[u] + w;
+}
+\end{code}
+
+這個動作叫\textbf{鬆弛}（relaxation）。 本章的每一個演算法都由鬆弛組成，差別
+只在\textbf{用什麼順序}鬆弛哪些邊。 \texttt{dist[v]} 永遠是某一條真正的走法
+的長度，所以它只會從上面往下逼近 $\delta(v)$，不會比 $\delta(v)$ 小。
+
+鬆弛背後是最短路徑的一個性質：\textbf{最短路徑的一段，也是那兩點之間的最短路
+徑}。 如果 $s \to \cdots \to u \to v$ 是到 $v$ 的最短路徑，前面 $s$ 到 $u$ 那
+段一定也是到 $u$ 的最短路徑；否則把它換成更短的那條，到 $v$ 的路也跟著變短。
+所以
+\[
+\delta(v) = \min_{\text{每條邊 } u \to v} \bigl(\delta(u) + w(u, v)\bigr),
+\]
+這就是第 1 本第~9~章的轉移式，「到 $v$ 最少花多少」只依賴前一站的答案。 圖沒
+有環時，照本書第~6~章的拓樸順序一個點一個點算就好；有環時沒有事先排好的順
+序。 第 1 本第~11~章說過，BFS 是一邊算一邊排，照答案本身由小到大填表。
+Dijkstra 演算法也是這樣，只是權重不同時，要用優先佇列找出下一個最小的。
+
+\section{Dijkstra 演算法}
+\label{sec:sp-dijkstra}
+
+\textbf{Dijkstra 演算法}（Dijkstra's algorithm）以提出者 Edsger Dijkstra 命
+名。 它要求每條邊的權重都\textbf{不是負數}，步驟如下：
+
+\begin{enumerate}
+\item \texttt{dist[s]} 設成 $0$，其他點設成無限大，把 $(0, s)$ 放進一個「小的
+在上」的優先佇列。
+\item 優先佇列不空時，拿出最小的一筆 $(d, u)$。 如果 $d$ 不等於目前的
+\texttt{dist[u]}，這筆是過期的紀錄，丟掉；否則 $u$ 的最短距離就是 $d$，從此不
+再改變，接著把 $u$ 的每一條邊 $u \to v$ 鬆弛一次，成功時把
+$(\texttt{dist[v]}, v)$ 放進優先佇列。
+\item 優先佇列空了就結束。 \texttt{dist} 仍是無限大的點就是走不到的點。
+\end{enumerate}
+
+下面的程式讀入圖~\ref{fig:sp-map}，印出到每個點的最短距離，以及到終點的一條
+最短路徑。 印路徑用到的 \texttt{par} 陣列在第~\ref{sec:sp-path}~小節說明。
+
+\begin{example}[label=ex:sp-dijkstra]{cpp}{(dijkstra.cpp) Dijkstra 演算法}
+#include <algorithm>
+#include <functional>
+#include <iostream>
+#include <queue>
+#include <utility>
+#include <vector>
+using namespace std;
+
+const long long INF = 1e18;
+
+int main() {
+    int n, m, s, t;
+    cin >> n >> m >> s >> t;
+    vector<vector<pair<int, long long>>> adj(n + 1);   // (鄰點, 權重)
+    for (int i = 0; i < m; i++) {
+        int u, v;
+        long long w;
+        cin >> u >> v >> w;
+        adj[u].push_back({v, w});                      // 雙向的道路
+        adj[v].push_back({u, w});
+    }
+    vector<long long> dist(n + 1, INF);
+    vector<int> par(n + 1, 0);                         // 最短路上的前一站
+    // 小的在上：(目前的距離, 點)
+    priority_queue<pair<long long, int>, vector<pair<long long, int>>,
+                   greater<pair<long long, int>>> pq;
+    dist[s] = 0;
+    pq.push({0, s});
+    while (!pq.empty()) {
+        auto [d, u] = pq.top();
+        pq.pop();
+        if (d != dist[u]) {                            // 過期的紀錄，丟掉
+            continue;
+        }
+        for (auto [v, w] : adj[u]) {
+            if (d + w < dist[v]) {                     // 鬆弛
+                dist[v] = d + w;
+                par[v] = u;
+                pq.push({dist[v], v});
+            }
+        }
+    }
+    for (int v = 1; v <= n; v++) {
+        cout << (dist[v] == INF ? -1 : dist[v]) << (v < n ? ' ' : '\n');
+    }
+    if (dist[t] == INF) {
+        cout << "no path\n";
+        return 0;
+    }
+    vector<int> path;
+    for (int v = t; v != s; v = par[v]) {              // 從終點往回走
+        path.push_back(v);
+    }
+    path.push_back(s);
+    reverse(path.begin(), path.end());
+    for (size_t i = 0; i < path.size(); i++) {
+        cout << path[i] << (i + 1 < path.size() ? ' ' : '\n');
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+6 8 1 6 \\
+1 2 7 \\
+1 3 2 \\
+2 3 3 \\
+2 4 2 \\
+3 5 7 \\
+4 5 1 \\
+4 6 6 \\
+5 6 2 \\
+}{
+0 5 2 7 8 10 \\
+1 3 2 4 5 6 \\
+}
+
+\begin{itemize}
+\item \texttt{greater<pair<long long, int>>} 讓優先佇列變成小的在上（銜接書
+8.6 節），\texttt{pair} 先比距離、距離相同再比點的編號。 沒有寫這個參數的話，
+拿出來的是最大的，見本節的常見錯誤。
+\item \texttt{auto [d, u] = pq.top();} 把最上面那筆\textbf{複製}出來再
+\texttt{pop}。 寫成參考 \texttt{auto \&[d, u]} 的話，\texttt{pop} 之後
+\texttt{d}、\texttt{u} 會變成別筆紀錄的值。
+\item 距離可能到 $10^{14}$，要用 \texttt{long long}；無限大用 $10^{18}$，加上
+一條邊也不會溢位。
+\end{itemize}
+
+\subsection{在圖上跑一次}
+
+圖~\ref{fig:sp-trace} 的四張圖是程式在圖~\ref{fig:sp-map} 上的過程。 橘色的點已經定案，粉紅色的
+點是這一步剛處理完的點，藍色數字是目前的 \texttt{dist}。
+
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}[x=0.95cm, y=0.82cm]
+\begin{scope}
+\spmapgraph{1/0/spvnow/left, 2/7/spv/above, 3/2/spv/below, 4/$\infty$/spv/above, 5/$\infty$/spv/below, 6/$\infty$/spv/right}{}
+\node[font=\small] at (2.25,-1.3) {(a) 處理完 $1$};
+\end{scope}
+\begin{scope}[xshift=6.8cm]
+\spmapgraph{1/0/spvdone/left, 2/5/spv/above, 3/2/spvnow/below, 4/$\infty$/spv/above, 5/9/spv/below, 6/$\infty$/spv/right}{}
+\node[font=\small] at (2.25,-1.3) {(b) 處理完 $3$};
+\end{scope}
+\begin{scope}[yshift=-4.3cm]
+\spmapgraph{1/0/spvdone/left, 2/5/spvdone/above, 3/2/spvdone/below, 4/7/spvnow/above, 5/8/spv/below, 6/13/spv/right}{}
+\node[font=\small] at (2.25,-1.3) {(c) 處理完 $2$、$4$};
+\end{scope}
+\begin{scope}[xshift=6.8cm, yshift=-4.3cm]
+\spmapgraph{1/0/spvdone/left, 2/5/spvdone/above, 3/2/spvdone/below, 4/7/spvdone/above, 5/8/spvdone/below, 6/10/spvdone/right}{1/3, 3/2, 2/4, 4/5, 5/6}
+\node[font=\small] at (2.25,-1.3) {(d) 結束，粗線是 \texttt{par}};
+\end{scope}
+\end{tikzpicture}
+\diagcaption{Dijkstra 演算法在外送地圖上的過程。}
+\label{fig:sp-trace}
+\end{figure}
+
+每一次從優先佇列拿出一筆紀錄，對應下表的一列。 「堆裡的紀錄」依大小列出，實
+際在堆積裡不是排好的（第 1 本 6.5 節）。
+
+\begin{center}
+\begin{tabular}{cll}
+\toprule
+拿出 & 做了什麼 & 之後堆裡的紀錄 \\
+\midrule
+$(0, 1)$ & 處理 $1$：$2$ 變 $7$，$3$ 變 $2$ & $(2,3)\ (7,2)$ \\
+$(2, 3)$ & 處理 $3$：$2$ 從 $7$ 變 $5$，$5$ 變 $9$ & $(5,2)\ (7,2)\ (9,5)$ \\
+$(5, 2)$ & 處理 $2$：$4$ 變 $7$ & $(7,2)\ (7,4)\ (9,5)$ \\
+$(7, 2)$ & 過期（\texttt{dist[2]} 已經是 $5$），丟掉 & $(7,4)\ (9,5)$ \\
+$(7, 4)$ & 處理 $4$：$5$ 從 $9$ 變 $8$，$6$ 變 $13$ & $(8,5)\ (9,5)\ (13,6)$ \\
+$(8, 5)$ & 處理 $5$：$6$ 從 $13$ 變 $10$ & $(9,5)\ (10,6)\ (13,6)$ \\
+$(9, 5)$ & 過期，丟掉 & $(10,6)\ (13,6)$ \\
+$(10, 6)$ & 處理 $6$：沒有邊能鬆弛 & $(13,6)$ \\
+$(13, 6)$ & 過期，丟掉 & （空） \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+處理的順序是 $1, 3, 2, 4, 5, 6$，最短距離 $0, 2, 5, 7, 8, 10$ 由小到大，和上一
+節「把邊拆成小段再 BFS」走到真正路口的順序一樣。
+
+\subsection{過期的紀錄}
+
+點 $2$ 先被 $1$ 更新成 $7$，放了一筆 $(7, 2)$；後來又被 $3$ 更新成 $5$，再放
+一筆 $(5, 2)$。 \texttt{priority\_queue} 不能改裡面的值，也不能刪中間的元
+素，所以舊的那筆就留在裡面。 這和第 1 本 6.5 節「刪掉堆積裡任意一個」的做法一
+樣：\textbf{先不刪}，等它浮到最上面時再檢查，和 \texttt{dist} 對不上就丟掉。
+
+檢查也可以改用一個 \texttt{done} 陣列：拿出 $u$ 時，\texttt{done[u]} 已經是
+\texttt{true} 就跳過，否則設成 \texttt{true} 再處理。 兩種寫法在權重非負時效
+果相同。 本章用比較 \texttt{d != dist[u]} 的寫法，因為少一個陣列，而且 $d$ 本
+來就要拿來算新的距離。
+
+\subsection{為什麼拿出來就定案}
+\label{sec:sp-dijkstra-proof}
+
+直覺是：權重沒有負的，路只會越走越長。 優先佇列最上面的 $(d, u)$ 是所有還沒
+處理的紀錄裡最小的；任何還沒處理的點，最好也是 $d$ 或更大，從它們繞過來再走到
+$u$，只會更長或一樣長，不可能比 $d$ 短。 完整的說明在下面的框裡，第一次讀可以
+跳過。
+
+\begin{whybox}[Dijkstra 拿出來的距離就是最短距離]
+對處理的次數做歸納：假設之前處理過的點，\texttt{dist} 都已經等於最短距離。 現
+在拿出 $(d, u)$，$d = \texttt{dist[u]}$，要說明 $d = \delta(u)$。
+
+\texttt{dist[u]} 是某一條真正走法的長度，所以 $d \ge \delta(u)$。 假設 $d >
+\delta(u)$，取一條長度 $\delta(u)$ 的最短路徑 $P$，從起點沿著 $P$ 往 $u$ 走。
+起點已經處理過，$u$ 還沒有，所以途中一定有第一個「還沒處理」的點，叫它 $y$，
+它在 $P$ 上的前一站 $x$ 已經處理過。
+
+處理 $x$ 時鬆弛過 $x \to y$，所以 $\texttt{dist[y]} \le \delta(x) + w(x, y)$。
+右邊是 $P$ 從起點走到 $y$ 那一段的長度，而 $P$ 從 $y$ 走到 $u$ 的剩下那段，每
+條邊都不是負的，所以這段的長度不超過整條 $P$：
+\[
+\texttt{dist[y]} \le \delta(x) + w(x, y) \le \delta(u) < d.
+\]
+$y$ 還沒處理，\texttt{dist[y]} 最後一次被改的時候放了一筆
+$(\texttt{dist[y]}, y)$，這筆還在優先佇列裡，而且比 $(d, u)$ 小，和「拿出來
+的是最小的」矛盾。 所以 $d = \delta(u)$。
+
+證明裡用到權重非負的地方只有一處：「$P$ 剩下那段的長度 $\ge 0$」。 有負權重
+時這一步不成立，第~\ref{sec:sp-negative}~小節會看到實際出錯的例子。
+\end{whybox}
+
+\subsection{複雜度}
+
+每個點只會被處理一次（之後的紀錄都會因為過期被丟掉），處理 $u$ 時把
+\texttt{adj[u]} 看一遍，所以全部加起來看了 $m$ 條有向邊（雙向的道路算兩條）。
+每看一條邊最多放一筆紀錄，優先佇列最多 $m + 1$ 筆，每次放入、拿出是
+$O(\log m)$。 $m$ 不超過 $n^2$，$\log m \le 2 \log n$，所以總共是
+$O((n + m) \log n)$。 $n = 10^5$、$m = 2 \times 10^5$ 時大約幾百萬次堆積操作，
+很快。
+
+只要一個終點的距離時，可以在拿出終點的那一刻就結束，因為拿出來就定案了。 第~
+\ref{sec:ex-cart}~小節的例題就是這樣寫的。
+
+\subsection{還原路徑}
+\label{sec:sp-path}
+
+要印出路線，就在每次鬆弛成功時記下「是從哪一點過來的」：\texttt{par[v] = u}。
+\texttt{dist[v]} 最後一次被改的時候，\texttt{par[v]} 也跟著改，所以結束時
+\texttt{par[v]} 是 $v$ 在某一條最短路徑上的前一站。 從終點沿著 \texttt{par}
+一路往回走到起點，再把順序倒過來，就是一條最短路徑。 這和第 1 本第~9~章沿著
+\texttt{last} 往回印出一種貼法是同一個做法。
+
+圖~\ref{fig:sp-trace}(d) 的粗線是全部的 \texttt{par} 邊。 起點以外每個點剛好一
+條，而且 \texttt{par[v]} 比 $v$ 早處理，往回走不會繞圈，所以粗線是一棵以起點為根
+的樹，叫\textbf{最短路徑樹}（shortest-path tree）。 從起點順著它走到任何一點，
+都是一條最短路徑。
+
+\subsection{負權重會出錯}
+\label{sec:sp-negative}
+
+下面這張有向圖有一條權重 $-4$ 的邊，起點是 $1$。
+
+\begin{center}
+\begin{tikzpicture}[x=1.6cm, y=1.1cm]
+\node[spv] (1) at (0,0) {1};
+\node[spv] (2) at (1.5,0) {2};
+\node[spv] (3) at (0.75,-1.3) {3};
+\node[spv] (4) at (3,0) {4};
+\draw[spd] (1) -- node[spw] {2} (2);
+\draw[spd] (1) -- node[spw] {5} (3);
+\draw[spdhl] (3) -- node[spw] {$-4$} (2);
+\draw[spd] (2) -- node[spw] {1} (4);
+\end{tikzpicture}
+\diagcaption{有一條負權重邊的圖。 從 $1$ 到 $2$ 最短是 $1 \to 3 \to 2$，長度 $1$。}
+\label{fig:sp-neg}
+\end{center}
+
+Dijkstra 處理完 $1$ 之後，\texttt{dist[2]} $= 2$、\texttt{dist[3]} $= 5$，接著
+拿出 $(2, 2)$，認定 $2$ 的最短距離是 $2$，並用它把 $4$ 設成 $3$。 真正的答案
+是 $\delta(2) = 1$、$\delta(4) = 2$：先繞到 $3$ 比較遠，但 $3 \to 2$ 會扣回來。
+上面證明裡「剩下那段的長度 $\ge 0$」就是在這裡失效的。
+
+用 \texttt{done} 陣列的寫法，處理 $3$ 時 \texttt{dist[2]} 會被改成 $1$，但 $2$
+已經處理過、不會再處理，\texttt{dist[4]} 就停在錯的 $3$。 本章用比較
+\texttt{dist} 的寫法，改成 $1$ 時會再放一筆 $(1, 2)$，$2$ 會被處理第二次，這張
+圖碰巧得到正確的答案。 可是這樣
+「處理過還要再改」的次數沒有上限的保證，有些圖會讓它慢到指數時間。 有負權重
+時，正確的做法是第~\ref{sec:sp-bf}~節的 Bellman--Ford；圖沒有環時，用本書第~6~
+章的拓樸順序，權重是負數也沒關係。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{優先佇列的方向反了}：少寫 \texttt{greater<...>}，拿出來的是距離
+最大的。 範例的輸入仍然印出正確的答案，因為過期的檢查和鬆弛會一直修正，但順序
+亂了，同一個點會被處理很多次。 在一張大約 $5 \times 10^4$ 個點、$5 \times 10^4$
+條路的圖上，範例程式在本書測試的環境下要 $0.02$ 秒，這樣改要約 $6.5$ 秒。 如果
+程式在拿出終點時就提早結束（第~\ref{sec:ex-cart}~小節的寫法），答案還會直接錯
+掉：搬運車的範例 1 會印出 \texttt{15}。
+\item \textbf{第一次看到就定案}：沿用 BFS 的習慣，\texttt{dist[v]} 還是無限
+大才更新，更新過就不再改。 範例的輸入會印出 \texttt{0 7 2 9 9 15} 和
+\texttt{1 2 4 6}：$2$ 被 $1$ 先看到，定成 $7$，後來 $3$ 帶來的 $5$ 被忽略。 要
+定案的時機是\textbf{拿出來}的時候，不是放進去的時候。
+\item \textbf{無限大太小}：用 $10^9$ 或 \texttt{0x3f3f3f3f}（約 $1.06 \times
+10^9$）當無限大，題目的距離到 $10^{14}$ 時，真的距離比「無限大」還大，會被當成
+走不到。 \texttt{dist} 用 \texttt{int} 時，相加直接溢位。
+\item \textbf{有負權重還用 Dijkstra}：見上一小節。 先看題目的權重範圍有沒有
+負數。
+\end{itemize}
+
+\section{0/1 BFS}
+\label{sec:sp-01bfs}
+
+第 1 本 12.4 節最後預告過一種權重只有 $0$ 和 $1$ 的圖，例如格子地圖上「最少要
+拆幾面牆」。 這種圖用 Dijkstra 當然可以，但有一個更簡單、少一個 $\log$ 的做
+法。
+
+換一個例子。 社區的巷子都是單行道，夜間清運車要從車庫（路口 $1$）開到處理場
+（路口 $n$）。 順著方向開不用申請；逆向開一段巷子，要事先申請一張通行證。 最
+少要申請幾張？ 把每條單行道 $u \to v$ 拆成兩條邊：$u \to v$ 代價 $0$，
+$v \to u$ 代價 $1$，問題就變成從 $1$ 到 $n$ 的最短距離。
+
+\begin{center}
+\begin{tikzpicture}[x=1.5cm, y=1.1cm]
+\node[spv] (1) at (0,1) {1};
+\node[spv] (2) at (1.5,2) {2};
+\node[spv] (3) at (3,2) {3};
+\node[spv] (4) at (2.25,1) {4};
+\node[spv] (5) at (1.5,0) {5};
+\node[spv] (6) at (4,1) {6};
+\draw[spd] (1) -- (2);
+\draw[spd] (2) -- (3);
+\draw[spd] (6) -- (3);
+\draw[spd] (5) -- (1);
+\draw[spd] (6) -- (5);
+\draw[spd] (4) -- (2);
+\draw[spd] (4) -- (6);
+\end{tikzpicture}
+\diagcaption{七條單行道。 從 $1$ 到 $6$，順著箭頭走不用申請，逆著走一段要一張。}
+\label{fig:sp-oneway}
+\end{center}
+
+圖~\ref{fig:sp-oneway} 裡，經過的巷子最少的是 $1 \to 5 \to 6$，兩段都是逆向，
+要申請兩張。 $1 \to 2 \to 3$ 都是順向，最後一段逆著 $6 \to 3$ 開到 $6$，只要
+一張。
+
+做法是把 BFS 的佇列換成兩端都能放的 \texttt{deque}：從前端拿出 $u$，鬆弛成功
+時，代價 $0$ 的放到\textbf{前端}，代價 $1$ 的放到\textbf{尾端}。 這叫
+\textbf{0/1 BFS}（0-1 BFS）。
+
+\begin{example}[label=ex:sp-zeroone]{cpp}{(zeroone.cpp) 0/1 BFS：最少的逆向通行證}
+#include <deque>
+#include <iostream>
+#include <utility>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n, m;
+    cin >> n >> m;
+    vector<vector<pair<int, int>>> adj(n + 1);   // (鄰點, 代價 0 或 1)
+    for (int i = 0; i < m; i++) {
+        int u, v;
+        cin >> u >> v;                           // 單行道 u -> v
+        adj[u].push_back({v, 0});                // 順向：不用申請
+        adj[v].push_back({u, 1});                // 逆向：一張申請單
+    }
+    const int INF = 1e9;
+    vector<int> dist(n + 1, INF);
+    deque<int> dq;
+    dist[1] = 0;
+    dq.push_back(1);
+    while (!dq.empty()) {
+        int u = dq.front();
+        dq.pop_front();
+        for (auto [v, w] : adj[u]) {
+            if (dist[u] + w < dist[v]) {
+                dist[v] = dist[u] + w;
+                if (w == 0) {
+                    dq.push_front(v);            // 代價 0：插到最前面
+                } else {
+                    dq.push_back(v);             // 代價 1：排到最後面
+                }
+            }
+        }
+    }
+    cout << (dist[n] == INF ? -1 : dist[n]) << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+6 7 \\
+1 2 \\
+2 3 \\
+6 3 \\
+5 1 \\
+6 5 \\
+4 2 \\
+4 6 \\
+}{
+1 \\
+}
+
+\texttt{deque} 的變化如下，括號裡是那個點當時的 \texttt{dist}：
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+拿出 & 鬆弛成功 & 之後的 \texttt{deque}（前 $\to$ 後） \\
+\midrule
+ & & $1(0)$ \\
+$1$ & $2$ 變 $0$ 放前端，$5$ 變 $1$ 放尾端 & $2(0)\ 5(1)$ \\
+$2$ & $3$ 變 $0$ 放前端，$4$ 變 $1$ 放尾端 & $3(0)\ 5(1)\ 4(1)$ \\
+$3$ & $6$ 變 $1$ 放尾端 & $5(1)\ 4(1)\ 6(1)$ \\
+$5$ & 沒有（$5 \to 6$ 逆向要 $2$，不比 $1$ 好） & $4(1)\ 6(1)$ \\
+$4$ & 沒有 & $6(1)$ \\
+$6$ & 沒有 & （空） \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+為什麼這樣是對的：\texttt{deque} 裡的 \texttt{dist} 由前往後不會變小，而且頭
+尾最多差 $1$。 拿出前端的 $u$（值 $d$）時，裡面的值都在 $d$ 和 $d + 1$ 之間；
+放到前端的是 $d$，放到尾端的是 $d + 1$，放完之後仍然成立。 這和第 1 本第~11~
+章說明 BFS 時用的是同一件事。 所以點被拿出來的順序，\texttt{dist} 由小到大，
+和 Dijkstra 拿出來的順序一樣，正確的理由也一樣。
+
+同一個點可能進 \texttt{deque} 兩次：先以 $d + 1$ 放到尾端，之後又被別的點以 $d$
+放到前端。 第二次拿出它時，\texttt{dist} 已經是最終的值，鬆弛都不會成功，不影
+響答案。 一個點的 \texttt{dist} 最多被改兩次，所以總共是 $O(n + m)$。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{當成普通的 BFS}：用 \texttt{queue}，第一次看到就定案。 範例的
+輸入會印出 \texttt{2}：$6$ 第一次被看到，是從 $5$（\texttt{dist} $1$）逆向過
+去，定成 $2$；後來從 $3$ 順著過去只要 $1$，已經改不了了。
+\item \textbf{代價不只 $0$、$1$}：有代價 $2$ 的邊時，放到尾端會破壞「頭尾最多
+差 $1$」。 這時改用 Dijkstra。
+\end{itemize}
+
+\section{多個起點與虛擬起點}
+\label{sec:sp-multi}
+
+第 1 本第~11~章的多源 BFS，把所有起點一起放進佇列、距離都設成 $0$，算出每個
+點離\textbf{最近的}起點多遠。 加權圖也一樣：把所有起點的 \texttt{dist} 設成
+$0$、一起放進優先佇列，做一次 Dijkstra。
+
+起點各自有不同的「出發成本」時，例如第 $i$ 個起點要先等 $p_i$ 分鐘才能出發，
+可以想像多一個\textbf{虛擬起點} $0$，從 $0$ 拉一條權重 $p_i$ 的邊到第 $i$ 個起
+點，再從 $0$ 做 Dijkstra。 任何從 $0$ 出發的路徑，第一步一定是這些邊之一，所以
+到 $v$ 的最短距離就是 $\min_i \bigl(p_i + \text{起點 } i \text{ 到 } v \text{
+的最短距離}\bigr)$。 程式裡不用真的加點和邊：把第 $i$ 個起點的 \texttt{dist}
+設成 $p_i$（同一點有好幾個起點時取最小），一起放進優先佇列，就是從 $0$ 處理完
+之後的狀態。
+
+\subsection{記住是哪一個起點}
+\label{sec:sp-label}
+
+有時候不只要距離，還要知道最近的是\textbf{哪一個}起點，距離相同時取編號小的。
+例如三間消防隊同時出動，每個村落要知道哪一隊最先到。 做法是把每個點的
+\texttt{dist} 從一個數換成一對數 $(\text{距離}, \text{起點編號})$，用
+\texttt{pair} 的大小比較：先比距離，相同再比編號。 沿著一條權重 $w$ 的邊走，
+標籤從 $(d, i)$ 變成 $(d + w, i)$。
+
+Dijkstra 的證明（第~\ref{sec:sp-dijkstra-proof}~小節）只用到兩件事：沿著路徑往
+前走，標籤不會變小；兩個標籤 $L_1 \le L_2$ 各自接上同一條邊之後，仍然是
+$L_1 + w \le L_2 + w$。 $(d, i)$ 加上 $w$ 只動到距離、編號不變，這兩件事都對，
+所以優先佇列裡放 $(\text{距離}, \text{編號}, \text{點})$ 照樣做 Dijkstra。 C++
+的 \texttt{tuple} 就是三個欄位的 \texttt{pair}，比較也是從第一個依序比，
+\texttt{auto [d, id, u]} 一樣可以拆開。
+
+要注意兩個地方。 一是鬆弛的條件要比整個標籤：只比距離的話，先到的起點以距離 $6$
+佔住某個點之後，編號更小、距離也是 $6$ 的起點就改不過來。 二是過期的檢查也要
+比整個標籤，不然一筆距離相同、編號較大的舊紀錄會被當成有效的。 同一個點有好幾
+個起點時，初值取標籤最小的那一個。
+
+同樣的模型也出現在別的地方：每戶人家離哪一間醫院最近；好幾個倉庫一起出貨、各
+自的備貨時間不同，每個門市由哪一個倉庫供貨最快。 實作練習的
+\akiref{fire-crews-getting-ready}{消防分隊的整備時間}就是這種題目。
+
+\section{反向圖：每個點到同一個終點}
+\label{sec:sp-reverse}
+
+Dijkstra 算的是「從一個起點到每個點」。 有向圖的題目常常反過來問：每個人從自
+己的位置走到同一個集合點，各要多久？ 對每個人各做一次 Dijkstra 太慢。 第 1 本
+第~11~章用過反向圖：把每條邊 $u \to v$ 反過來存成 $v \to u$，在反向圖上從終點
+$t$ 出發做一次，得到的就是每個點\textbf{走到} $t$ 的最短距離。 權重照抄，
+Dijkstra 本身不用改。
+
+實作時把 Dijkstra 寫成函式 \texttt{dijkstra(g, s)}，回傳整個 \texttt{dist}；讀邊時
+同時建 \texttt{adj} 和反向的 \texttt{radj}，再各呼叫一次，得到 \texttt{ds}（從 $s$
+出發）和 \texttt{dt}（走到 $t$）。
+
+有了 \texttt{ds} 和 \texttt{dt}，很多問題變成查表：
+
+\begin{itemize}
+\item \textbf{一定要經過某個點 $x$}：從 $s$ 經過 $x$ 再到 $t$，最短是
+\texttt{ds[x] + dt[x]}。 前後兩段互不影響，各自取最短就好。 能經過的點有好幾
+個（例如任何一間有賣某樣東西的店）時，對它們取最小值。
+\item \textbf{哪些邊在某條最短路徑上}：邊 $u \to v$（權重 $w$）在某一條 $s$ 到
+$t$ 的最短路徑上，剛好是 \texttt{ds[u] + w + dt[v]} 等於 \texttt{ds[t]} 的時
+候。
+\end{itemize}
+
+例如一張有向圖有七條邊：$1 \to 2$（$3$）、$1 \to 3$（$1$）、$3 \to 2$（$1$）、
+$2 \to 5$（$4$）、$3 \to 4$（$5$）、$4 \to 5$（$1$）、$5 \to 3$（$2$），起點
+$1$、終點 $5$。 兩次 Dijkstra 的結果：
+
+\begin{center}
+\begin{tabular}{cccccc}
+\toprule
+點 $x$ & 1 & 2 & 3 & 4 & 5 \\
+\midrule
+\texttt{ds[x]}（從 $1$ 出發） & 0 & 2 & 1 & 6 & 6 \\
+\texttt{dt[x]}（走到 $5$） & 6 & 4 & 5 & 1 & 0 \\
+\texttt{ds[x] + dt[x]} & 6 & 6 & 6 & 7 & 6 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+最短距離是 $6$。 一定要經過 $4$ 的話最短是 $7$。 七條邊裡，滿足
+\texttt{ds[u] + w + dt[v]} $= 6$ 的是 $1 \to 3$、$3 \to 2$、$2 \to 5$，它們組成
+唯一的一條最短路徑 $1 \to 3 \to 2 \to 5$。 注意 \texttt{dt} 一定要在反向圖上
+算：從 $5$ 出發在原圖上走得到 $3$，但那是「$5$ 到 $3$」，不是「$3$ 到 $5$」。
+
+\section{狀態圖}
+\label{sec:sp-state}
+
+第 1 本第~12~章的狀態 BFS 說過：同一個位置，如果手上的東西、面向、剩下的量不同，
+之後能做的事就不同，這時一個點要代表「位置加上這些資訊」。 加權圖也一樣，只是
+狀態之間的邊有不同的權重，BFS 換成 Dijkstra。 狀態圖通常不用真的建出來：把狀態
+編成一個整數當作 \texttt{dist} 的索引，處理到它的時候，當場算出它能走到哪些狀態、
+各花多少。
+
+常見的附加資訊有三種。
+
+\textbf{用了幾次。} 例如手上有 $k$ 張半價券，每條路最多用一張。 狀態是
+$(\text{位置}, \text{已經用了幾張})$，共 $n(k + 1)$ 個。 從 $(u, j)$ 走一條權重
+$w$ 的路，可以付全額到 $(v, j)$，或在 $j < k$ 時用一張券、付 $w / 2$ 到
+$(v, j + 1)$。 畫出來像疊起來的 $k + 1$ 層地圖，券只能讓你往下一層走，所以這種
+圖也叫\textbf{分層圖}（layered graph）。 答案是終點在每一層的距離取最小。
+
+\begin{center}
+\begin{tikzpicture}[x=1.7cm, y=1.5cm]
+\node[font=\small, anchor=east] at (-0.4,1.4) {第 0 層（還沒用券）};
+\node[font=\small, anchor=east] at (-0.4,0) {第 1 層（用過一張）};
+\node[spv] (a0) at (0,1.4) {1};
+\node[spv] (b0) at (1.5,1.4) {2};
+\node[spv] (c0) at (3,1.4) {3};
+\node[spv] (a1) at (0,0) {1};
+\node[spv] (b1) at (1.5,0) {2};
+\node[spvdone] (c1) at (3,0) {3};
+\draw[spe] (a0) -- node[spw] {8} (b0);
+\draw[spe] (b0) -- node[spw] {6} (c0);
+\draw[spe] (a0) to[bend left=30] node[spw] {18} (c0);
+\draw[spe] (a1) -- node[spw] {8} (b1);
+\draw[spe] (b1) -- node[spw] {6} (c1);
+\draw[spe] (a1) to[bend right=30] node[spw] {18} (c1);
+\draw[spd, dashed] (a0) -- node[spw, pos=0.3] {4} (b1);
+\draw[spd, dashed] (b0) -- node[spw, pos=0.3] {3} (c1);
+\draw[spdhl, dashed] (a0) -- node[spw, pos=0.3] {9} (c1);
+\end{tikzpicture}
+\diagcaption{三個點、一張半價券的分層圖。 虛線是用券的邊，只能往下走（往左走的用券
+邊省略沒畫）。 不用券最
+短是 $1 \to 2 \to 3$ 的 $14$；用一張券，最好是把券用在 $18$ 那條路上，只要 $9$。}
+\label{fig:sp-layer}
+\end{center}
+
+圖~\ref{fig:sp-layer} 也說明了為什麼不能「先找最短路徑，再把最貴的那段打半
+價」：最短路徑 $1 \to 2 \to 3$ 打完折是 $8 + 3 = 11$，比直接把券用在 $18$ 那條
+路上的 $9$ 還貴。 用券改變了哪一條路最好，所以要把券數放進狀態裡一起搜。
+
+\textbf{朝向。} 車子、機器人轉彎要花時間時，同一格面向不同，之後要付的轉彎代
+價就不同，狀態要包含朝向。 下一小節的例題就是這種。
+
+\textbf{時間。} 有些邊什麼時候能走和時刻有關，例如路口要等綠燈、平台退潮才露出
+來。 如果\textbf{早到不吃虧}，也就是可以在原地等，早一點到某個點，能做的事不會
+比晚到少，那麼每個點只要記最早到達的時刻就好，不用把時間放進狀態。 鬆弛時算出
+「從 $u$ 最早什麼時候能出發」，再加上路程：
+\[
+\texttt{dist[v]} \leftarrow \min\bigl(\texttt{dist[v]},\ \text{最早能出發的時刻}(\texttt{dist[u]}) + w\bigr).
+\]
+最早能出發的時刻不會早於到達的時刻，而且到得越早，能出發的時刻也越早（或一樣），
+所以 Dijkstra 的證明照樣成立。 反過來，如果規定到了不能等、必須馬上走，早到就可
+能比晚到糟，這時就要把時間放進狀態，或另外想辦法。
+
+不管哪一種，動手前先估狀態數和邊數（第 1 本 12.4 節的方法）。 Dijkstra 的時間
+大約是 $(\text{狀態數} + \text{邊數}) \times \log(\text{狀態數})$。
+
+\subsection{例題：轉彎很慢的搬運車}
+\label{sec:ex-cart}
+
+\textbf{題意}（\akiref{the-cart-that-turns-slowly}{轉彎很慢的搬運車}）
+
+\begin{itemize}
+\item 倉庫是 $R \times C$ 的方格。 \texttt{\#} 是貨架，不能進入；數字
+\texttt{1} 到 \texttt{9} 是地面，數字是駛入這一格要花的秒數；\texttt{S} 是起
+點、\texttt{T} 是終點，駛入這兩格都算 $1$ 秒。
+\item 搬運車停在 \texttt{S}，一開始面向東。 每次可以往目前的朝向前進一格，或原
+地左轉、右轉 $90^\circ$，轉一次花 $K$ 秒；掉頭就是轉兩次。
+\item 開進 \texttt{T} 就算送達，面向哪裡都可以。 求最少的秒數，到不了輸出
+$-1$。
+\item $R, C \le 500$，$0 \le K \le 10^4$。
+\end{itemize}
+
+範例 1 的地圖如下，$K = 3$。
+
+\begin{center}
+\begin{tikzpicture}[x=0.9cm, y=0.9cm]
+\foreach \t [count=\i from 0] in {2, 3, 1, T} {
+    \node[cell] at (\i,1) {\t};
+}
+\foreach \t [count=\i from 0] in {S, 4, 2} {
+    \node[cell] at (\i,0) {\t};
+}
+\node[cell, fill=black!35] at (3,0) {\#};
+\draw[-{Stealth[length=2.2mm]}, very thick, draw=memStroke] (-0.3,0.15) -- (-0.3,1.3) -- (1.8,1.3);
+\draw[-{Stealth[length=2.2mm]}, very thick, draw=optStroke, dashed] (-0.1,-0.3) -- (2.3,-0.3) -- (2.3,0.85);
+\node[font=\small, anchor=west] at (4,1) {甲：先北再東，到 \texttt{1} 是第 $12$ 秒、面向東};
+\node[font=\small, anchor=west] at (4,0) {乙：先東再北，到 \texttt{1} 是第 $10$ 秒、面向北};
+\end{tikzpicture}
+\diagcaption{範例 1 的兩種走法。 \texttt{T} 只能從左邊那格往東開進去。}
+\label{fig:sp-cart}
+\end{center}
+
+走法甲：左轉（$3$）、駛入 \texttt{2}（$5$）、右轉（$8$）、駛入 \texttt{3}、
+\texttt{1}（$12$），再往東駛入 \texttt{T}，共 $13$ 秒。 走法乙：駛入 \texttt{4}、
+\texttt{2}（$6$）、左轉（$9$）、駛入上面的 \texttt{1}（$10$），這時車頭朝北，
+還要右轉（$13$）才能開進 \texttt{T}（$14$）。 乙比較早到 \texttt{T} 左邊那格，最
+後反而比較慢。 答案是 $13$。
+
+\textbf{想法}
+
+每一格只記一個最小秒數的話，\texttt{T} 左邊那格會記下乙的 $10$ 秒、面向北，甲的
+$12$ 秒、面向東被丟掉，最後算出 $14$。 慢一點但方向對的走法，之後可能比較快，所
+以狀態要是 $(\text{列}, \text{行}, \text{朝向})$，共 $4RC$ 個。 每個狀態有三條
+往外的邊：
+
+\begin{itemize}
+\item 右轉、左轉：到同一格的另外兩個朝向，權重 $K$。
+\item 前進：到前方那一格、同一個朝向，權重是駛入那一格的秒數。 出界或是貨架就
+沒有這條邊。
+\end{itemize}
+
+權重有 $K$ 也有 $1$ 到 $9$，不是全部一樣，也不只有 $0$、$1$，所以用 Dijkstra。
+掉頭不用另外處理，連續轉兩次就是 $2K$。 終點的四個朝向都算送達，拿出任何一個
+\texttt{T} 的狀態，那就是答案，可以馬上結束。
+
+\begin{center}
+\begin{tikzpicture}[x=1.15cm, y=1.15cm]
+\node[spv] (aE) at (1,0) {東};
+\node[spv] (aS) at (0,-1) {南};
+\node[spv] (aW) at (-1,0) {西};
+\node[spv] (aN) at (0,1) {北};
+\draw[spe, <->, >={Stealth[length=2mm]}] (aE) -- node[spw] {$K$} (aS);
+\draw[spe, <->, >={Stealth[length=2mm]}] (aS) -- node[spw] {$K$} (aW);
+\draw[spe, <->, >={Stealth[length=2mm]}] (aW) -- node[spw] {$K$} (aN);
+\draw[spe, <->, >={Stealth[length=2mm]}] (aN) -- node[spw] {$K$} (aE);
+\node[spv] (bE) at (5,0) {東};
+\node[spv] (bS) at (4,-1) {南};
+\node[spv] (bW) at (3,0) {西};
+\node[spv] (bN) at (4,1) {北};
+\draw[spdhl] (aE) .. controls (2.2,-2.6) and (5.9,-2.6) .. node[spw, pos=0.5] {駛入 $B$ 的秒數} (bE);
+\draw[black!40, rounded corners] (-1.6,-1.5) rectangle (1.6,1.5);
+\draw[black!40, rounded corners] (2.4,-1.5) rectangle (5.6,1.5);
+\node[font=\small] at (0,1.8) {格子 $A$};
+\node[font=\small] at (4,1.8) {格子 $B$（在 $A$ 的東邊）};
+\end{tikzpicture}
+\diagcaption{一格拆成四個狀態。 同一格的相鄰朝向互相連 $K$ 秒的邊；只有面向東的
+狀態能前進到東邊那格，而且到達後仍然面向東。}
+\label{fig:sp-cart-states}
+\end{center}
+
+同樣的模型也出現在別的地方：堆高機、掃地機器人轉向比直走慢；地圖導航算路線時，
+左轉要等號誌，比直行和右轉多花時間。
+
+\textbf{程式}
+
+\begin{example}[label=ex:sp-cart]{cpp}{(cart.cpp) 轉彎很慢的搬運車}
+#include <functional>
+#include <iostream>
+#include <queue>
+#include <string>
+#include <utility>
+#include <vector>
+using namespace std;
+
+const long long INF = 1e18;
+const int dr[4] = {0, 1, 0, -1};   // 0 東、1 南、2 西、3 北（順時針）
+const int dc[4] = {1, 0, -1, 0};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int R, C;
+    long long K;
+    cin >> R >> C >> K;
+    vector<string> g(R);
+    for (string &row : g) {
+        cin >> row;
+    }
+    // 狀態 (r, c, d) 編成一個整數 (r * C + c) * 4 + d
+    vector<long long> dist(R * C * 4, INF);
+    priority_queue<pair<long long, int>, vector<pair<long long, int>>,
+                   greater<pair<long long, int>>> pq;
+    for (int r = 0; r < R; r++) {
+        for (int c = 0; c < C; c++) {
+            if (g[r][c] == 'S') {
+                int s = (r * C + c) * 4 + 0;          // 一開始面向東
+                dist[s] = 0;
+                pq.push({0, s});
+            }
+        }
+    }
+    while (!pq.empty()) {
+        auto [d, st] = pq.top();
+        pq.pop();
+        if (d != dist[st]) {
+            continue;
+        }
+        int dir = st % 4, r = st / 4 / C, c = st / 4 % C;
+        if (g[r][c] == 'T') {                       // 第一次拿出 T 就是答案
+            cout << d << '\n';
+            return 0;
+        }
+        // 兩種轉向：右轉 dir + 1、左轉 dir + 3（都取除以 4 的餘數）
+        for (int nd : {(dir + 1) % 4, (dir + 3) % 4}) {
+            int ns = (r * C + c) * 4 + nd;
+            if (d + K < dist[ns]) {
+                dist[ns] = d + K;
+                pq.push({dist[ns], ns});
+            }
+        }
+        // 往前一格
+        int nr = r + dr[dir], nc = c + dc[dir];
+        if (nr < 0 || nr >= R || nc < 0 || nc >= C || g[nr][nc] == '#') {
+            continue;
+        }
+        char ch = g[nr][nc];
+        long long cost = (ch >= '1' && ch <= '9') ? ch - '0' : 1;
+        int ns = (nr * C + nc) * 4 + dir;
+        if (d + cost < dist[ns]) {
+            dist[ns] = d + cost;
+            pq.push({dist[ns], ns});
+        }
+    }
+    cout << -1 << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+2 4 3 \\
+231T \\
+S42\# \\
+}{
+13 \\
+}
+
+\begin{itemize}
+\item 朝向照順時針編號，右轉是加 $1$、左轉是加 $3$（等於減 $1$），再取除以
+$4$ 的餘數，不用寫四種情況。
+\item 狀態編成 \texttt{(r * C + c) * 4 + d}，拆回來是 \texttt{d = st \% 4}、
+\texttt{r = st / 4 / C}、\texttt{c = st / 4 \% C}。 最多 $4 \times 500 \times
+500 = 10^6$ 個狀態，\texttt{dist} 約 8 MB。
+\item $K = 0$ 時轉向的邊權重是 $0$。 Dijkstra 允許權重 $0$，不用特別處理。
+\end{itemize}
+
+\textbf{複雜度}
+
+$4RC$ 個狀態、每個最多三條邊，$O(RC \log(RC))$，大約 $10^6 \times 20$。 最大
+的測資在本書測試的環境下約 $0.12$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{只用格子當狀態}：每格記最小秒數和當時的朝向，下一步依朝向的差補
+上轉彎的代價。 範例 1 會印出 \texttt{14}，就是上面走法乙的結果。
+\item \textbf{起點四個朝向都從 $0$ 開始}：題目規定一開始面向東。 範例 1 會印
+出 \texttt{10}：直接面向北出發，省掉了第一次轉彎。
+\item \textbf{無限大設成 $10^9$}：測資裡有每走一格都要轉彎的蛇行地圖，答案超
+過 $1.6 \times 10^9$。
+\item \textbf{每個動作都算一步，用 BFS}：前進和轉彎的代價不同，BFS 求的是動作
+數最少，不是秒數最少。
+\end{itemize}
+
+\section{Bellman--Ford 與負環}
+\label{sec:sp-bf}
+
+權重可以是負數的情況不少：走某段路會拿到回饋點數，遊戲裡經過某個房間會撿到金幣，
+或是題目給的是「$x_b - x_a \le d$」這種差距的限制。 第~\ref{sec:sp-negative}~小
+節看過，這時 Dijkstra 的「拿出來就定案」不成立。
+
+\textbf{Bellman--Ford 演算法}（Bellman--Ford algorithm）不管順序，直接把\textbf{每
+一條邊}都鬆弛一次，當作一輪，重複 $n - 1$ 輪。 邊用一個串列存起來就好，不需要
+鄰接串列：
+
+\begin{code}{cpp}{Bellman--Ford 的主迴圈}
+struct Edge {
+    int u, v;
+    long long w;
+};
+// dist[s] = 0，其他是 INF
+for (int round = 1; round < n; round++) {
+    for (const Edge &e : edges) {
+        if (dist[e.u] != INF && dist[e.u] + e.w < dist[e.v]) {
+            dist[e.v] = dist[e.u] + e.w;
+        }
+    }
+}
+\end{code}
+
+\texttt{dist[e.u] != INF} 這個檢查不能省。 少了它，走不到的點的「無限大」加上
+負的權重，會變成一個比無限大小一點的數，看起來像走得到。
+
+拿圖~\ref{fig:sp-neg} 來跑，故意把邊排成 $2 \to 4$、$3 \to 2$、$1 \to 2$、
+$1 \to 3$ 的順序（$n = 4$，跑三輪），表裡是每個點的 \texttt{dist}：
+
+\begin{center}
+\begin{tabular}{lccccl}
+\toprule
+ & 點 1 & 點 2 & 點 3 & 點 4 & 這一輪發生的事 \\
+\midrule
+開始 & 0 & $\infty$ & $\infty$ & $\infty$ & \\
+第 1 輪 & 0 & 2 & 5 & $\infty$ & 前兩條邊的起點還是 $\infty$，跳過 \\
+第 2 輪 & 0 & 1 & 5 & 3 & $2 \to 4$ 先用舊的 $2$，之後 $3 \to 2$ 才改成 $1$ \\
+第 3 輪 & 0 & 1 & 5 & 2 & $2 \to 4$ 用新的 $1$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+邊的順序不好時，好消息要好幾輪才傳得過去。 最短路徑 $1 \to 3 \to 2 \to 4$ 有三
+條邊，剛好用了三輪。 下面的框說明為什麼 $n - 1$ 輪一定夠。
+
+\begin{whybox}[$n - 1$ 輪就夠]
+先證明：\textbf{第 $i$ 輪結束時，\texttt{dist[v]} 不超過「從起點到 $v$、最多用
+$i$ 條邊的走法」裡最短的長度。} 對 $i$ 歸納。 $i = 0$ 時只有起點是 $0$，對。 任
+取一條最多 $i$ 條邊、走到 $v$ 的走法，它的最後一條邊是 $u \to v$，前面那段最多
+$i - 1$ 條邊，依歸納，第 $i - 1$ 輪結束時 \texttt{dist[u]} 不超過那段的長度。
+\texttt{dist} 只會變小，第 $i$ 輪鬆弛 $u \to v$ 時，\texttt{dist[v]} 就不超過
+整條走法的長度。
+
+如果從起點走得到的地方沒有負環（下一小節），最短的走法可以不重複經過任何點：
+重複經過表示中間繞了一圈，這一圈的長度不是負的，拿掉不會變長。 不重複的走法最
+多 $n - 1$ 條邊，所以第 $n - 1$ 輪結束時 \texttt{dist[v]} $\le \delta(v)$；而
+\texttt{dist[v]} 永遠是某條真正走法的長度，不會小於 $\delta(v)$，兩邊夾起來就相
+等。
+
+注意第 $i$ 輪結束時的 \texttt{dist[v]} 可能比「最多 $i$ 條邊」的答案還小，因為
+同一輪裡前面改過的值，後面的邊馬上就用上了（上表第 2 輪的 $3 \to 2$ 就是在
+$2 \to 4$ 之後才改）。 題目限制邊數時要小心，見本章練習第~\ref{drill:sp-klimit}~
+題。
+\end{whybox}
+
+每一輪看 $m$ 條邊，共 $n - 1$ 輪，複雜度 $O(nm)$。 實際上常常不到 $n - 1$ 輪就
+不再有任何變化；某一輪什麼都沒改，之後每一輪也都一樣，可以直接停下來。
+
+\subsection{負環和受影響的點}
+\label{sec:sp-negcycle}
+
+一圈走回原點、權重總和是負數的環，叫\textbf{負環}（negative cycle）。 從起點走
+得到一個負環時，繞一圈就少一點，繞越多圈越少，環上的點沒有最短距離，可以任意
+小；從環上走得到的每個點也一樣，先繞很多圈再走過去就好。 這些點的答案是
+$-\infty$。
+
+怎麼找出它們：跑完 $n - 1$ 輪之後，再把每條邊檢查一次。 沒有負環的話，上面的框說
+\texttt{dist} 已經是最短距離，不可能再鬆弛；所以這時還能鬆弛的邊 $u \to v$，它
+的 $v$ 一定受負環影響。 把這些 $v$ 標起來，再沿著邊往下游做一次 BFS 或 DFS，走到
+的點全部標成 $-\infty$。
+
+只標「第 $n$ 輪還能鬆弛的點」不夠，一定要往下游擴散。 下游的點可能另外有一條便
+宜很多的路，負環每圈只少一點點，第 $n$ 輪時還追不上，那條邊就不會被鬆弛；但繞
+夠多圈之後一定追得上。 本節的例題會看到實際的輸入。
+
+\begin{whybox}[標起來再擴散，剛好是受影響的點]
+\textbf{標到的點都受影響。} 假設 $u \to v$ 在第 $n$ 輪還能鬆弛，但 $v$ 不受任何
+負環影響。 那麼 $u$ 也不受影響（否則 $v$ 在 $u$ 的下游，也會受影響），上面的框
+說 $n - 1$ 輪後 \texttt{dist[u]} $= \delta(u)$、\texttt{dist[v]} $= \delta(v)$，
+而 $\delta(v) \le \delta(u) + w$，不能再鬆弛，矛盾。 從受影響的點往下游走到的點
+當然也受影響。
+
+\textbf{受影響的點都標得到。} 只要說明每個走得到的負環上，至少有一條邊在第 $n$
+輪還能鬆弛。 假設某個負環 $x_1 \to x_2 \to \cdots \to x_k \to x_1$ 上每條邊都不
+能鬆弛，也就是每條邊都有 $\texttt{dist}[x_{j+1}] \le \texttt{dist}[x_j] +
+w(x_j, x_{j+1})$。 這 $k$ 個不等式加起來，左右兩邊的 \texttt{dist} 剛好互相消
+掉，剩下 $0 \le$ 環上權重的總和，和負環矛盾。 所以每個負環上都有點被標到，環上
+其他點和下游都會在擴散時走到。
+\end{whybox}
+
+從起點走不到的負環不影響任何答案。 程式裡 \texttt{dist[e.u] != INF} 的檢查讓這
+些環永遠不會被鬆弛，也就不會被標到。 網路上常見的另一種寫法是把所有
+\texttt{dist} 一開始都設成 $0$，用來檢查「整張圖有沒有負環」，它會把走不到的負
+環也找出來，在這一節的問題裡是錯的。
+
+\subsection{例題：多入口地城的最低花費}
+\label{sec:ex-dungeon}
+
+\textbf{題意}（\akiref{cheapest-walk-in-a-multi-entrance-dungeon}{多入口地城的最低花費}）
+
+\begin{itemize}
+\item 地城有 $n$ 個房間、$m$ 條單向通道，走過第 $j$ 條通道要付 $w_j$ 枚金幣，
+$w_j$ 是負數時代表撿到金幣。 每次經過都重新計算。 可能有通道繞回同一個房間。
+\item 有 $k$ 個入口，第 $i$ 個在房間 $a_i$，入場費 $e_i$。 選一個入口進場，沿通
+道走任意多步（可以不走），在任何房間都可以停下。
+\item 對每個房間，求停在那裡的最小總花費：沒有入口走得到就輸出 \texttt{X}；可以
+任意小就輸出 \texttt{-INF}；否則輸出最小值。
+\item $n \le 5000$，$m \le 10^4$，$e_i \le 10^9$，$|w_j| \le 10^9$。
+\end{itemize}
+
+範例 2 只有一個入口：房間 $1$，入場費 $5$。
+
+\begin{center}
+\begin{tikzpicture}[x=1.45cm, y=1.1cm]
+\node[spv] (1) at (0,0) {1};
+\node[spvnow] (2) at (1.5,0.8) {2};
+\node[spvnow] (3) at (3,0.8) {3};
+\node[spvnow] (4) at (4.5,0.8) {4};
+\node[spv] (5) at (1.5,-0.9) {5};
+\node[spvgray] (6) at (3.4,-0.9) {6};
+\node[spvgray] (7) at (4.9,-0.9) {7};
+\draw[spd] (1) -- node[spw] {3} (2);
+\draw[spdhl] (2) to[bend left=25] node[spw] {$-4$} (3);
+\draw[spdhl] (3) to[bend left=25] node[spw] {2} (2);
+\draw[spd] (3) -- node[spw] {1} (4);
+\draw[spd] (1) -- node[spw] {2} (5);
+\draw[spdgray] (6) to[bend left=25] node[spw] {$-1$} (7);
+\draw[spdgray] (7) to[bend left=25] node[spw] {$-1$} (6);
+\draw[spdgray] (7) to[bend left=30] node[spw] {0} (5);
+\node[font=\small, anchor=east] at (-0.4,0) {入口，入場費 $5$};
+\end{tikzpicture}
+\diagcaption{範例 2。 $2 \to 3 \to 2$ 繞一圈是 $-2$，粉紅色的點都是 \texttt{-INF}；
+$6$、$7$ 的負環沒有入口走得到。}
+\label{fig:sp-dungeon}
+\end{center}
+
+房間 $2$、$3$ 在負環上，房間 $4$ 不在環上，但可以先繞很多圈再走 $3 \to 4$，三
+個都是 \texttt{-INF}。 房間 $5$ 只能走 $1 \to 5$，花費 $7$。 $6 \leftrightarrow
+7$ 也是負環，還有一條 $7 \to 5$，但沒有入口走得到 $6$、$7$，它們是 \texttt{X}，
+也不會把房間 $5$ 拉成 \texttt{-INF}。
+
+\textbf{想法}
+
+最直接的做法是每個入口各跑一次 Bellman--Ford，$k \cdot n \cdot m$ 最多 $5000
+\times 5000 \times 10^4$，太慢。 和第~\ref{sec:sp-multi}~節一樣用虛擬起點：從
+虛擬起點連一條權重 $e_i$ 的邊到每個入口。 程式裡就是把 \texttt{dist[a\_i]} 設
+成 $e_i$，其他設成無限大，再照常跑。 這裡權重有負的，所以用 Bellman--Ford，不
+用 Dijkstra。
+
+跑完 $n - 1$ 輪（加上虛擬起點是 $n + 1$ 個點，要 $n$ 輪；但虛擬起點的邊在一開始
+就鬆弛完了，等於已經跑過一輪，所以 $n - 1$ 輪仍然夠），再用上一小節的方法找出
+\texttt{-INF} 的房間。 \texttt{dist} 仍是無限大的房間輸出 \texttt{X}。
+
+範例 2 跑第 1 輪後，房間 $1$ 到 $5$ 的 \texttt{dist} 是 $5, 6, 4, 5, 7$，第 2 輪
+是 $5, 4, 2, 3, 7$，第 6 輪是 $5, -4, -6, -5, 7$；$6$、$7$ 一直是無限大。
+房間 $2$、$3$、$4$ 每一輪都少 $2$，永遠停不下來。 跑完 $6$ 輪之後檢查，只有
+$2 \to 3$ 還能鬆弛（$-4 - 4 < -6$），標出房間 $3$；再往下游擴散，走到 $2$ 和
+$4$。 只看第 $7$ 輪的話，連環上的房間 $2$ 都會漏掉。
+
+\textbf{程式}
+
+\begin{example}[label=ex:sp-dungeon]{cpp}{(dungeon.cpp) 多入口地城的最低花費}
+#include <iostream>
+#include <queue>
+#include <vector>
+using namespace std;
+
+const long long INF = 1e18;
+
+struct Edge {
+    int u, v;
+    long long w;
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, m, k;
+    cin >> n >> m >> k;
+    vector<long long> dist(n + 1, INF);
+    for (int i = 0; i < k; i++) {
+        int a;
+        long long e;
+        cin >> a >> e;
+        dist[a] = e;                    // 虛擬起點連到入口，權重是入場費
+    }
+    vector<Edge> edges(m);
+    vector<vector<int>> adj(n + 1);     // 只用來往下游擴散
+    for (Edge &e : edges) {
+        cin >> e.u >> e.v >> e.w;
+        adj[e.u].push_back(e.v);
+    }
+    // 第 1 到 n - 1 輪：每輪把每條邊鬆弛一次
+    for (int round = 1; round < n; round++) {
+        bool changed = false;
+        for (const Edge &e : edges) {
+            if (dist[e.u] != INF && dist[e.u] + e.w < dist[e.v]) {
+                dist[e.v] = dist[e.u] + e.w;
+                changed = true;
+            }
+        }
+        if (!changed) {                 // 這一輪沒有變化，之後也不會變
+            break;
+        }
+    }
+    // 第 n 輪還能鬆弛的邊，終點受負環影響；再沿邊擴散到下游
+    vector<bool> neg(n + 1, false);
+    queue<int> q;
+    for (const Edge &e : edges) {
+        if (dist[e.u] != INF && dist[e.u] + e.w < dist[e.v] && !neg[e.v]) {
+            neg[e.v] = true;
+            q.push(e.v);
+        }
+    }
+    while (!q.empty()) {
+        int u = q.front();
+        q.pop();
+        for (int v : adj[u]) {
+            if (!neg[v]) {
+                neg[v] = true;
+                q.push(v);
+            }
+        }
+    }
+    for (int v = 1; v <= n; v++) {
+        if (dist[v] == INF) {
+            cout << "X\n";
+        } else if (neg[v]) {
+            cout << "-INF\n";
+        } else {
+            cout << dist[v] << '\n';
+        }
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+7 8 1 \\
+1 5 \\
+1 2 3 \\
+2 3 -4 \\
+3 2 2 \\
+3 4 1 \\
+1 5 2 \\
+6 7 -1 \\
+7 6 -1 \\
+7 5 0 \\
+}{
+5 \\
+-INF \\
+-INF \\
+-INF \\
+7 \\
+X \\
+X \\
+}
+
+\begin{itemize}
+\item 擴散用的 \texttt{adj} 只存鄰點，不用權重。 \texttt{neg} 同時當作 BFS 的
+「看過了」，每個點最多放進佇列一次。
+\item 有負環時，環上的 \texttt{dist} 在 $n - 1$ 輪裡會一直往下掉。 每一輪每條邊最
+多鬆弛一次，所以 \texttt{dist} 對應的走法最多 $(n - 1)m$ 條邊，最負大約
+$5000 \times 10^4 \times 10^9 = 5 \times 10^{16}$，\texttt{long long} 裝得下。
+\item 範例 1 的房間 $1$ 是入口，入場費 $4$，但從房間 $4$ 進場走 $4 \to 5 \to 1$
+只要 $1$。 入口的答案不一定是自己的入場費，所以 \texttt{dist[a]} 只是初值，之
+後照樣可以被鬆弛。
+\end{itemize}
+
+\textbf{複雜度}
+
+Bellman--Ford $O(nm)$，最多 $5000 \times 10^4 = 5 \times 10^7$ 次鬆弛；擴散
+$O(n + m)$。 最大的測資在本書測試的環境下約 $0.14$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{沒有往下游擴散}：只把第 $n$ 輪能鬆弛的點標成 \texttt{-INF}。 輸入
+\begin{code}{text}{只標第 n 輪會錯的輸入}
+4 5 1
+1 0
+1 2 0
+2 3 0
+3 2 -1
+3 4 100
+1 4 0
+\end{code}
+正確的輸出是 \texttt{0}、\texttt{-INF}、\texttt{-INF}、\texttt{-INF}，這樣寫會
+印出 \texttt{0}、\texttt{-3}、\texttt{-INF}、\texttt{0}。 負環 $2 \to 3 \to 2$
+每圈只少 $1$，房間 $4$ 另外有一條 $0$ 的路，第 $n$ 輪時 $3 \to 4$ 還差得遠；連
+環上的房間 $2$ 都沒被標到，因為第 $n$ 輪剛好只有 $3$ 被改。
+\item \textbf{沒檢查無限大}：拿掉 \texttt{dist[e.u] != INF}。 範例 2 會印出
+\texttt{5} 和六個 \texttt{-INF}：走不到的 $6 \leftrightarrow 7$ 從
+$10^{18}$ 開始往下掉，被當成走得到的負環，還連帶把房間 $5$ 拉成
+\texttt{-INF}。
+\item \textbf{用 Dijkstra}：有負權重，答案會錯（第~\ref{sec:sp-negative}~小節）；
+有負環時更會一直繞下去。
+\item \textbf{每個入口各跑一次}：$k$ 到 $n$ 時太慢。
+\end{itemize}
+
+\subsection{SPFA}
+\label{sec:sp-spfa}
+
+Bellman--Ford 每一輪都把所有邊看一遍，其實只有「上一輪 \texttt{dist} 變過的點」
+往外的邊才可能鬆弛成功。 用一個佇列放這些點：拿出 $u$，鬆弛它的每條邊，成功時
+如果 $v$ 不在佇列裡就把它放進去。 這個寫法常被叫做 \textbf{SPFA}（shortest path
+faster algorithm），在很多隨機的圖上比 Bellman--Ford 快很多。
+
+但它的最壞情況仍然是 $O(nm)$，而且這個最壞情況很容易構造出來：讓同一個點被反覆改
+小、反覆放回佇列。 本章有幾題的測資特別放了這種圖。 例如把第~\ref{sec:ex-cart}~
+小節的搬運車改用 SPFA，其中一筆測資有 $10^6$ 個狀態，SPFA 從佇列拿出了超過 $6
+\times 10^8$ 次，在本書測試的環境下約 $2.4$ 秒；Dijkstra 只要 $0.01$ 秒。
+
+所以：權重沒有負的，用 Dijkstra，不要用 SPFA。 有負權重時，SPFA 和
+Bellman--Ford 的保證一樣是 $O(nm)$，只是平常比較快；拿它找負環還要另外記每個
+點進出佇列的次數。 寫 Bellman--Ford 並加上「這一輪沒有變化就停」，通常就夠了。
+
+\section{Floyd--Warshall 演算法}
+\label{sec:sp-fw}
+
+前面都是從一個起點出發。 題目要問很多對點之間的距離，而且點不多（幾百個）時，
+可以一次算出每兩點之間的最短距離，叫\textbf{全點對最短路徑}（all-pairs shortest
+paths）。 \textbf{Floyd--Warshall 演算法}（Floyd--Warshall algorithm）只有三層
+迴圈，權重可以是負數（不能有負環）。
+
+它是一個動態規劃。 把點編號 $1$ 到 $n$。 一條路徑除了起點和終點以外經過的點，叫
+它的\textbf{中間點}。 定義
+\[
+d_k[i][j] = \text{從 } i \text{ 到 } j\text{、中間點都在 } \{1, 2, \ldots, k\} \text{ 裡的最短長度}.
+\]
+$d_0$ 不允許任何中間點，就是直接連的邊（有好幾條取最短，$d_0[i][i] = 0$，沒有邊是
+無限大）；$d_n$ 沒有限制，就是答案。 從 $d_{k-1}$ 算 $d_k$ 時，多了點 $k$ 可以
+用，一條中間點在 $\{1, \ldots, k\}$ 裡的最短路徑只有兩種：
+
+\begin{itemize}
+\item 沒經過 $k$：長度是 $d_{k-1}[i][j]$。
+\item 經過 $k$：沒有負環時，最短路徑不必重複經過點，$k$ 只出現一次。 從 $i$ 到 $k$
+那段、從 $k$ 到 $j$ 那段，中間點都在 $\{1, \ldots, k - 1\}$ 裡，長度是
+$d_{k-1}[i][k] + d_{k-1}[k][j]$。
+\end{itemize}
+
+\begin{center}
+\begin{tikzpicture}[x=1.5cm, y=1.1cm]
+\node[spv] (i) at (0,0) {$i$};
+\node[spvnow] (k) at (2,1.1) {$k$};
+\node[spv] (j) at (4,0) {$j$};
+\draw[spd, dashed] (i) to[bend left=15] node[font=\scriptsize, above left] {$d_{k-1}[i][k]$} (k);
+\draw[spd, dashed] (k) to[bend left=15] node[font=\scriptsize, above right] {$d_{k-1}[k][j]$} (j);
+\draw[spd, dashed] (i) to[bend right=12] node[font=\scriptsize, below] {$d_{k-1}[i][j]$} (j);
+\end{tikzpicture}
+\diagcaption{虛線是中間點都在 $\{1, \ldots, k - 1\}$ 裡的最短路徑。 $d_k[i][j]$
+取下面那條和上面兩段相加的較小者。}
+\label{fig:sp-fw}
+\end{center}
+
+所以 $d_k[i][j] = \min\bigl(d_{k-1}[i][j],\ d_{k-1}[i][k] + d_{k-1}[k][j]\bigr)$。
+三維的表要 $n^3$ 格，但第 $k$ 層只用到第 $k - 1$ 層，而且第 $k$ 輪裡
+$d[i][k]$、$d[k][j]$ 這兩種格子不會被改（拿 $d[i][k]$ 來說，候選值是
+$d[i][k] + d[k][k] = d[i][k]$，因為沒有負環時 $d[k][k] = 0$），所以直接在同一張
+二維表上更新就好：
+
+\begin{code}{cpp}{Floyd--Warshall}
+for (int k = 1; k <= n; k++) {          // 第 k 輪：開放 k 當中間點
+    for (int i = 1; i <= n; i++) {
+        for (int j = 1; j <= n; j++) {
+            if (d[i][k] != INF && d[k][j] != INF) {
+                d[i][j] = min(d[i][j], d[i][k] + d[k][j]);
+            }
+        }
+    }
+}
+\end{code}
+
+\subsection{$k$ 一定在最外層}
+
+三層迴圈的順序不能換。 $k$ 是動態規劃的「階段」：第 $k$ 輪要用到第 $k - 1$ 輪
+\textbf{整張表}都算完的值。 把 $k$ 放到最內層，變成「對每一對 $(i, j)$，試遍所有
+$k$」，每一格只算一次，用的是當時表上的值，有些還沒算好。
+
+例如有向圖只有三條邊 $1 \to 4$、$4 \to 3$、$3 \to 2$，權重都是 $1$。 照
+$i, j, k$ 的順序，算 $d[1][2]$ 的時候 $d[1][3]$ 還沒算（要等 $j = 3$ 才算），試
+$k = 3$ 時是 $\infty + 1$；試 $k = 4$ 時 $d[4][2]$ 也還是 $\infty$。 $d[1][2]$
+就停在 $\infty$，正確答案是 $3$。 $k$ 放最外層時，第 $3$ 輪先把 $d[4][2]$ 算成
+$2$，第 $4$ 輪再用它得到 $d[1][2] = 1 + 2 = 3$。
+
+\subsection{使用時要注意的事}
+
+\begin{itemize}
+\item \textbf{複雜度}：$O(n^3)$ 時間、$O(n^2)$ 空間。 $n = 500$ 時是
+$1.25 \times 10^8$ 次很簡單的運算，大約零點幾秒；$n$ 到幾千就不能用了。
+\item \textbf{無限大}：$d[i][k] + d[k][j]$ 兩個都是無限大時會溢位。 先檢查，或
+選一個「兩個相加也不會溢位」的無限大，例如 $10^{18}$（$2 \times 10^{18}$ 仍在
+\texttt{long long} 的範圍內）。
+\item \textbf{負環}：跑完之後 $d[i][i] < 0$，表示 $i$ 在某個負環上。 有負環時表
+裡的值可能變得非常負，甚至溢位，題目可能有負環時要另外處理。
+\item \textbf{印出路徑}：另外存 \texttt{nxt[i][j]}，表示從 $i$ 走到 $j$ 的第一步。
+$d[i][j]$ 被 $k$ 改小時，令 \texttt{nxt[i][j] = nxt[i][k]}。
+\end{itemize}
+
+\subsection{例題：天橋候選方案的效益}
+\label{sec:ex-footbridge}
+
+\textbf{題意}（\akiref{evaluating-footbridge-proposals}{天橋候選方案的效益}）
+
+\begin{itemize}
+\item 市區有 $n$ 個路口、$m$ 條雙向道路，路網不一定連通。
+\item 有 $p$ 個方案，第 $k$ 個是在 $u_k$、$v_k$ 之間加一條長度 $w_k$ 的雙向天
+橋。 每個方案\textbf{各自獨立}評估：只加那一座，其他方案的天橋不存在。
+\item 對每個方案，求有幾個無序點對 $\{i, j\}$ 的最短距離\textbf{嚴格}變短。 原
+本走不到、加了之後走得到，也算變短。
+\item $n \le 200$，$m \le 2 \times 10^4$，$p \le 2000$，長度都在 $1$ 到 $10^6$
+之間。
+\end{itemize}
+
+範例 1 的路網是一條鏈 $1 - 2 - 3 - 4$（長度 $3$、$4$、$5$），路口 $5$ 沒有路。
+方案 1 在 $4$、$1$ 之間加長度 $6$ 的天橋：$\{1, 4\}$ 從 $12$ 變成 $6$；
+$\{2, 4\}$ 走 $2 \to 1 \to 4$ 是 $9$，和原本一樣，不算；答案是 $1$。 方案 2 把
+$5$ 接到 $4$，$5$ 和其他四個路口原本都走不到，答案是 $4$。
+
+\textbf{想法}
+
+最直接的做法：每個方案把天橋加進去，重跑一次 Floyd--Warshall，再和原本的表比較。
+每次 $n^3 = 8 \times 10^6$，乘上 $p = 2000$ 是 $1.6 \times 10^{10}$，太慢。
+
+觀察：長度都是正的，一條最短路徑不會經過同一座天橋兩次（兩次之間是一圈，拿掉更
+短）。 所以加了 $u$--$v$ 之後，$i$ 到 $j$ 的新最短距離只有三種可能：不走天橋、
+走 $u \to v$ 方向、走 $v \to u$ 方向，
+\[
+d'[i][j] = \min\bigl(d[i][j],\ d[i][u] + w + d[v][j],\ d[i][v] + w + d[u][j]\bigr),
+\]
+其中 $d$ 是原本的表，天橋前後兩段都是原本路網裡的最短路徑。 Floyd--Warshall 只
+要做一次，每個方案再把 $n(n - 1)/2$ 對點檢查一遍，$O(n^2)$。
+
+這題的重點是把距離表當成算好一次、之後一直查的資料。
+
+\textbf{程式}
+
+\begin{example}[label=ex:sp-footbridge]{cpp}{(footbridge.cpp) 天橋候選方案的效益}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+const long long INF = 1e18;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, m, p;
+    cin >> n >> m >> p;
+    vector<vector<long long>> d(n + 1, vector<long long>(n + 1, INF));
+    for (int i = 1; i <= n; i++) {
+        d[i][i] = 0;
+    }
+    for (int i = 0; i < m; i++) {
+        int a, b;
+        long long c;
+        cin >> a >> b >> c;
+        d[a][b] = min(d[a][b], c);           // 重複的道路取最短
+        d[b][a] = min(d[b][a], c);
+    }
+    for (int k = 1; k <= n; k++) {           // k 一定在最外層
+        for (int i = 1; i <= n; i++) {
+            if (d[i][k] == INF) {
+                continue;
+            }
+            for (int j = 1; j <= n; j++) {
+                if (d[k][j] != INF && d[i][k] + d[k][j] < d[i][j]) {
+                    d[i][j] = d[i][k] + d[k][j];
+                }
+            }
+        }
+    }
+    for (int q = 0; q < p; q++) {
+        int u, v;
+        long long w;
+        cin >> u >> v >> w;
+        long long count = 0;
+        for (int i = 1; i <= n; i++) {
+            for (int j = i + 1; j <= n; j++) {
+                long long viaUV = INF, viaVU = INF;   // 走天橋 u→v 或 v→u
+                if (d[i][u] != INF && d[v][j] != INF) {
+                    viaUV = d[i][u] + w + d[v][j];
+                }
+                if (d[i][v] != INF && d[u][j] != INF) {
+                    viaVU = d[i][v] + w + d[u][j];
+                }
+                if (min(viaUV, viaVU) < d[i][j]) {
+                    count++;
+                }
+            }
+        }
+        cout << count << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+5 3 4 \\
+1 2 3 \\
+2 3 4 \\
+3 4 5 \\
+4 1 6 \\
+4 5 1 \\
+2 3 4 \\
+1 3 2 \\
+}{
+1 \\
+4 \\
+0 \\
+2 \\
+}
+
+\begin{itemize}
+\item \texttt{d[i][k] == INF} 時整列都不可能更新，先跳過，順便省一點時間。
+\item 每個方案只讀 \texttt{d}、不改 \texttt{d}，方案之間互不影響。
+\item 兩個方向都要試。 範例的方案 1 寫成 \texttt{4 1}，對 $\{1, 4\}$ 來說，有用
+的是從 $1$ 往 $4$ 走天橋。
+\end{itemize}
+
+\textbf{複雜度}
+
+Floyd--Warshall $O(n^3) = 8 \times 10^6$，加上方案 $O(pn^2)$，大約 $2000 \times
+2 \times 10^4 = 4 \times 10^7$ 對。 最大的測資在本書測試的環境下約 $0.05$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{只試一個方向}：只算 \texttt{d[i][u] + w + d[v][j]}。 範例會印出
+\texttt{0 4 0 2}（每行一個），方案 1 漏掉了 $\{1, 4\}$。
+\item \textbf{相等也算變短}：條件寫成 \texttt{<=}。 範例會印出 \texttt{2 4 4 2}：
+方案 3 的天橋和原本的路一樣長，什麼都沒變短，卻算出 $4$ 對。
+\item \textbf{把天橋真的加進表裡}：之後的方案會用到前面方案的天橋。
+\item \textbf{無限大太小}：最長的真實距離約 $199 \times 10^6 \approx 2 \times
+10^8$，無限大設成 $10^8$ 會把遠的點對當成走不到。 用 \texttt{INT\_MAX} 又會在
+相加時溢位。
+\end{itemize}
+
+\section{怎麼選演算法}
+\label{sec:sp-choose}
+
+看到最短路徑的題目，先回答三個問題：要從幾個起點出發？ 權重的範圍是什麼？ $n$、
+$m$ 多大？ 下表的「大約能處理」是以 1 秒、每秒幾億次簡單運算估的（銜接書第~10~
+章 10.1 節的表）。
+
+\begin{center}
+\begin{tabular}{p{0.27\linewidth}p{0.24\linewidth}p{0.17\linewidth}p{0.2\linewidth}}
+\toprule
+圖的樣子 & 方法 & 時間 & 大約能處理 \\
+\midrule
+每條邊都一樣長 & BFS（第 1 本第~11~章） & $O(n + m)$ & $n + m$ 到 $10^7$ \\
+權重只有 $0$、$1$ & 0/1 BFS & $O(n + m)$ & $n + m$ 到 $10^7$ \\
+權重非負 & Dijkstra & $O((n + m) \log n)$ & $n + m$ 到 $10^6$ \\
+沒有環（DAG），權重任意 & 拓樸順序 DP（第~6~章） & $O(n + m)$ & $n + m$ 到 $10^7$ \\
+有負權重 & Bellman--Ford & $O(nm)$ & $nm$ 到 $10^8$ \\
+每兩點之間 & Floyd--Warshall & $O(n^3)$ & $n$ 到 $500$ \\
+每兩點之間，權重非負、$n$ 大 & 每個點各做一次 Dijkstra & $O(n(n + m) \log n)$ & 看 $n$ 和 $m$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+幾個補充：
+
+\begin{itemize}
+\item \textbf{先看能不能用比較簡單的}。 權重都一樣時不要用 Dijkstra，DAG 上不要用
+Bellman--Ford。
+\item \textbf{很密的圖}：$m$ 接近 $n^2$ 時，Dijkstra 可以不用優先佇列，每次把
+$n$ 個點掃一遍找最小的，$O(n^2)$，比 $O(n^2 \log n)$ 快一點。
+\item \textbf{規則不只是「加總」}：有券、有朝向、要等紅綠燈，先想清楚狀態要包含
+什麼（第~\ref{sec:sp-state}~節），再按權重選上面的方法。
+\item \textbf{估最大距離}：最短路徑最多 $n - 1$ 條邊，最大距離大約是 $(n - 1)
+\times$ 最大權重。 $n = 10^5$、權重 $10^9$ 時是 $10^{14}$，一定要
+\texttt{long long}；無限大要比它大，而且加上一條邊不能溢位。
+\end{itemize}
+
+\section{本章常見錯誤}
+\label{sec:sp-pitfalls}
+
+前面各節的錯誤歸納成六類，寫最短路徑的題目時，交出去之前逐項檢查一次。
+
+\begin{center}
+\begin{tabular}{p{0.19\linewidth}p{0.47\linewidth}p{0.22\linewidth}}
+\toprule
+錯誤 & 例子 & 見 \\
+\midrule
+方法和權重不合 & 加權圖用 BFS；有負權重用 Dijkstra；權重非負卻用 SPFA &
+第~\ref{sec:sp-why}、\ref{sec:sp-negative}、\ref{sec:sp-spfa}~節 \\
+定案的時機 & 第一次看到就定案；0/1 BFS 當成普通 BFS & 第~\ref{sec:sp-dijkstra}、
+\ref{sec:sp-01bfs}~節 \\
+狀態或標籤不夠 & 搬運車只記格子；記起點編號時只比距離 & 第~\ref{sec:ex-cart}、
+\ref{sec:sp-label}~節 \\
+無限大與溢位 & 無限大設成 $10^9$；\texttt{INF + INF}；走不到的點被負權重拉低 &
+第~\ref{sec:sp-dijkstra}、\ref{sec:ex-dungeon}、\ref{sec:sp-fw}~節 \\
+負環的範圍 & 沒有往下游擴散；所有 \texttt{dist} 從 $0$ 開始 &
+第~\ref{sec:sp-negcycle}、\ref{sec:ex-dungeon}~節 \\
+迴圈的順序 & Floyd--Warshall 的 $k$ 不在最外層 & 第~\ref{sec:sp-fw}~節 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{本章練習}
+\label{sec:ch8-exercises}
+
+\begin{drills}[label=drills:ch8]
+\item 有向圖有八條邊：$1 \to 2$（$4$）、$1 \to 3$（$1$）、$3 \to 2$（$2$）、
+$2 \to 4$（$1$）、$3 \to 4$（$6$）、$4 \to 5$（$3$）、$2 \to 5$（$7$）、
+$3 \to 5$（$9$）。 從 $1$ 出發，照範例~\ref{ex:sp-dijkstra} 的寫法跑
+Dijkstra。
+\begin{enumerate}
+\item 依序寫出從優先佇列拿出的每一筆紀錄，標出哪幾筆是過期的。
+\item 寫出最後的 \texttt{dist} 和 \texttt{par}，以及到 $5$ 的最短路徑。
+\end{enumerate}
+
+\item 有人想讓 Dijkstra 處理負權重：先找出最小的權重 $-c$，把每條邊都加上 $c$，
+權重就都不是負的了，跑完再換算回來。 給一個反例，說明這樣做為什麼不對。
+
+\item 把範例~\ref{ex:sp-dijkstra} 改成同時算出到每個點的最短路徑\textbf{有幾
+條}（權重都是正的）。
+\begin{enumerate}
+\item 寫出鬆弛時 \texttt{cnt[v]} 要怎麼更新。
+\item 如果允許權重是 $0$，你的寫法還對嗎？ 給一個例子。
+\end{enumerate}
+
+\item \label{drill:sp-klimit} 題目要「最多經過 $K$ 條邊」的最短路徑，有人直接
+跑 $K$ 輪 Bellman--Ford。
+\begin{enumerate}
+\item 給一個例子，說明跑完第 $1$ 輪，\texttt{dist} 可能已經用了不只一條邊。
+\item 怎麼改才能讓第 $i$ 輪結束時，\texttt{dist} 剛好是「最多 $i$ 條邊」的答案？
+\end{enumerate}
+
+\item Floyd--Warshall 一開始把 $d[i][i]$ 設成無限大（不是 $0$），其他照舊，權重都
+是正的。 跑完之後 $d[i][i]$ 代表什麼？
+
+\item 下面每種情況，選一個最適合的方法，並估計時間。
+\begin{enumerate}
+\item $n = 2 \times 10^5$、$m = 5 \times 10^5$，權重 $1$ 到 $10^9$，問一個起點到
+所有點。
+\item $1000 \times 1000$ 的格子，走進空地代價 $0$、走進草叢代價 $1$。
+\item $n = 300$，權重可能是負的但保證沒有負環，有 $10^5$ 筆「$a$ 到 $b$ 多遠」的
+詢問。
+\item $n = 2 \times 10^5$ 的 DAG，權重可能是負的，問一個起點到所有點。
+\item $n = 3000$、$m = 6000$，權重可能是負的，問從起點走得到的地方有沒有負環。
+\end{enumerate}
+\end{drills}
+
+\section{實作練習}
+\label{sec:ch8-practice}
+
+下面是 Aki-Judge 上和本章相關的題目，依小節分組，本章的三題例題也列在裡面。 難
+度分四階：暖身直接套用本章的寫法；基本要自己建圖或加一點變化；實戰要先把題目轉
+換成本章的形狀；挑戰會和其他章的技巧合在一起。
+
+\begin{center}
+\begin{tabular}{llc}
+\toprule
+小節 & 題目 & 難度 \\
+\midrule
+Dijkstra 與多個起點 & \akiref{earliest-parcel-delivery-through-sorting-hubs}{包裹轉運的最早送達時間} & 暖身 \\
+ & \akiref{fire-crews-getting-ready}{消防分隊的整備時間} & 暖身 \\
+ & \akiref{platforms-above-the-tide}{退潮才露出的平台} & 基本 \\
+ & \akiref{staggered-traffic-lights}{錯開的紅綠燈} & 基本 \\
+\midrule
+反向圖 & \akiref{costume-room-before-the-hall}{先拿戲服再去禮堂} & 暖身 \\
+ & \akiref{one-errand-on-the-way-home}{放學順路買東西} & 基本 \\
+ & \akiref{check-in-before-the-auditorium}{先報到再進禮堂} & 實戰 \\
+\midrule
+狀態圖與建圖 & \akiref{the-cart-that-turns-slowly}{轉彎很慢的搬運車} & 基本（例題） \\
+ & \akiref{drone-delivery-with-battery-swaps}{無人機送藥與換電池} & 實戰 \\
+ & \akiref{ten-minutes-flat}{一律十分鐘的接駁車} & 實戰 \\
+ & \akiref{the-gentlest-wheelchair-route}{坡度最緩的輪椅路線} & 挑戰 \\
+\midrule
+Bellman--Ford 與負環 & \akiref{cheapest-bike-trips-within-k-legs}{K 段內的最低點數與最少段數} & 暖身 \\
+ & \akiref{cheapest-walk-in-a-multi-entrance-dungeon}{多入口地城的最低花費} & 基本（例題） \\
+ & \akiref{rehearsal-start-windows}{校慶彩排的可排時段} & 實戰 \\
+\midrule
+Floyd--Warshall & \akiref{patrol-tasks-on-one-way-walkways}{單行步道的巡邏任務} & 暖身 \\
+ & \akiref{evaluating-footbridge-proposals}{天橋候選方案的效益} & 基本（例題） \\
+ & \akiref{flood-alert-threshold-on-a-typhoon-day}{颱風天的轉運站警戒門檻} & 實戰 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{讀完你應該會}
+\label{sec:ch8-checklist}
+
+\begin{itemize}
+\item 看到邊上有數字的圖，能說明 BFS 為什麼會錯，並依權重的範圍選 BFS、0/1 BFS、
+Dijkstra、Bellman--Ford 或 Floyd--Warshall。
+\item 能寫出用 \texttt{priority\_queue} 的 Dijkstra，處理過期的紀錄，用
+\texttt{par} 印出一條最短路徑，並說得出為什麼有負權重時會錯。
+\item 能用虛擬起點處理好幾個起點、用反向圖處理「每個點到同一個終點」，並用
+\texttt{ds[x] + dt[x]} 回答「一定要經過某點」的問題。
+\item 能把「用了幾張券、車頭朝哪裡」放進狀態，估出狀態數，在狀態圖上跑
+Dijkstra。
+\item 能用 Bellman--Ford 找出受負環影響的點，用 Floyd--Warshall 算出每兩點的距
+離，並說明 $k$ 為什麼要在最外層。
+\end{itemize}
+
+\textbf{延伸閱讀}（書末會整理完整的參考資料）
+
+\begin{itemize}
+\item Antti Laaksonen，\textit{Competitive Programmer's Handbook}，第 13 章：
+Bellman--Ford、Dijkstra、Floyd--Warshall 各一節，篇幅短，有手算的過程。
+\item Steven Halim 等，\textit{Competitive Programming 4}，Book 1，4.4、4.5 節：
+多源、反向圖、0/1 權重等變形整理得很完整，也比較了 Dijkstra 的兩種寫法和 SPFA。
+\item Thomas H. Cormen 等，\textit{Introduction to Algorithms}，第 4 版，第 22
+章（Bellman--Ford、Dijkstra 的完整證明，22.4 節用最短路徑解差距限制）與 23.2 節
+（Floyd--Warshall）。
+\item 劉汝佳，《算法競賽入門經典》第 2 版，11.3 節（最短路問題）。
+\end{itemize}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item
+\begin{enumerate}
+\item 拿出的順序：$(0, 1)$、$(1, 3)$、$(3, 2)$、$(4, 2)$ 過期、$(4, 4)$、
+$(7, 4)$ 過期、$(7, 5)$、$(10, 5)$ 過期。 處理 $1$ 時 $2$ 變 $4$、$3$ 變 $1$；
+處理 $3$ 時 $2$ 改成 $3$、$4$ 變 $7$、$5$ 變 $10$；處理 $2$ 時 $4$ 改成 $4$（$5$
+是 $3 + 7 = 10$，沒有更小）；處理 $4$ 時 $5$ 改成 $7$。 $(4, 2)$ 和 $(4, 4)$ 同
+距離，\texttt{pair} 再比點的編號，所以 $(4, 2)$ 先出來。
+\item \texttt{dist} $= 0, 3, 1, 4, 7$；\texttt{par[2]} $= 3$、\texttt{par[3]}
+$= 1$、\texttt{par[4]} $= 2$、\texttt{par[5]} $= 4$。 到 $5$ 的最短路徑是
+$1 \to 3 \to 2 \to 4 \to 5$，長度 $1 + 2 + 1 + 3 = 7$。
+\end{enumerate}
+
+\item 每條邊加 $c$，一條有 $\ell$ 條邊的路徑就多了 $\ell c$，邊多的路徑被罰得比較
+重，比較的結果會改變。 例如 $1 \to 2$（$-2$）、$2 \to 3$（$-2$）、$1 \to 3$
+（$-3$），從 $1$ 到 $3$ 最短是 $1 \to 2 \to 3$ 的 $-4$。 每條加 $3$ 之後變成
+$1$、$1$、$0$，最短變成直接走 $1 \to 3$ 的 $0$，換算回來是 $-3$，錯了。
+
+\item
+\begin{enumerate}
+\item 鬆弛時，\texttt{d + w < dist[v]} 表示找到更短的，舊的條數作廢：
+\texttt{cnt[v] = cnt[u]}；\texttt{d + w == dist[v]} 表示一樣短的另一批路：
+\texttt{cnt[v] += cnt[u]}。 \texttt{cnt[s] = 1}。 權重都是正的時候，$v$ 的每個
+「最短路徑上的前一站」$u$ 都滿足 $\delta(u) < \delta(v)$，一定比 $v$ 早處理，處
+理 $u$ 時 \texttt{cnt[u]} 已經是最後的值。 條數可能很大，題目通常會要求取餘數。
+\item 不一定對。 例如 $1 \to 2$（$1$）、$1 \to 3$（$1$）、$3 \to 2$（$0$）、
+$2 \to 4$（$1$）。 到 $4$ 的最短路徑有 $1 \to 2 \to 4$ 和 $1 \to 3 \to 2 \to 4$
+兩條，長度都是 $2$。 但 $(1, 2)$ 比 $(1, 3)$ 先拿出來，處理 $2$ 時
+\texttt{cnt[2]} 還是 $1$，傳給 $4$ 的是 $1$；之後處理 $3$ 才把 \texttt{cnt[2]}
+加成 $2$，已經來不及，印出 $1$。 權重 $0$ 讓「前一站」和自己距離相同，處理順序
+就不保證了。
+\end{enumerate}
+
+\item
+\begin{enumerate}
+\item 邊的順序是 $1 \to 2$（$1$）、$2 \to 3$（$1$）。 第 1 輪先把 \texttt{dist[2]}
+改成 $1$，接著 $2 \to 3$ 馬上用到它，\texttt{dist[3]} $= 2$，已經用了兩條邊。
+\item 每一輪開始前把 \texttt{dist} 複製一份 \texttt{prev}，鬆弛時一律用
+\texttt{prev[e.u] + e.w} 去更新 \texttt{dist[e.v]}。 這樣第 $i$ 輪只會在第
+$i - 1$ 輪的結果後面多接一條邊，跑 $K$ 輪就是「最多 $K$ 條邊」的答案。 因為限制
+了邊數，有負環也不會無限下降。
+\end{enumerate}
+
+\item $d[i][i]$ 是\textbf{經過 $i$ 的最短的環}的長度：從 $i$ 出發、至少走一條邊、
+回到 $i$ 的最短長度，沒有這種環就仍是無限大。 推導和正文一樣，只是 $d_0[i][i]$ 改
+成 $i$ 到 $i$ 的自環長度（沒有就是無限大），「什麼都不走」的 $0$ 不算，之後 $d[i][i]$
+只能由「$i$ 走到 $k$ 再走回 $i$」得到。 權重都是正的，這個環不會被算成 $0$。
+
+\item
+\begin{enumerate}
+\item Dijkstra，大約 $7 \times 10^5 \times 18 \approx 10^7$ 次堆積操作。
+\item 0/1 BFS，$10^6$ 個點、約 $4 \times 10^6$ 條邊，$O(n + m)$。
+\item Floyd--Warshall，$300^3 = 2.7 \times 10^7$；之後每筆詢問查表 $O(1)$。
+\item 本書第~6~章：先排拓樸順序，再照順序鬆弛，$O(n + m)$。
+\item Bellman--Ford 跑 $n$ 輪，$3000 \times 6000 = 1.8 \times 10^7$ 次鬆弛，第 $n$
+輪還能鬆弛就有走得到的負環。
+\end{enumerate}
+\end{enumerate}

@@ -55,4 +55,17 @@
     before skip=\medskipamount, after skip=\medskipamount,
 }
 
+
+% 第 1 本回顧框：和 bridgerecap 同一套樣式，標題是「第 1 本回顧」。
+%   \begin{prevbookrecap}[第~4~章 4.2 節：位元遮罩] ... \end{prevbookrecap}
+\newtcolorbox{prevbookrecap}[1][]{%
+    enhanced jigsaw, breakable,
+    sharp corners, boxrule=0.5mm,
+    colback=black!3, colframe=black!65, coltext=black,
+    colbacktitle=black!65, coltitle=white, fonttitle=\bfseries,
+    title={第 1 本回顧\if\relax\detokenize{#1}\relax\else：#1\fi},
+    left=3mm, right=3mm, top=2mm, bottom=2mm,
+    before skip=\medskipamount, after skip=\medskipamount,
+}
+
 \endinput
