@@ -1,0 +1,1332 @@
+\chapter{綜合練習}
+\label{ch:capstone}
+
+% 本章的圖共用的樣式（點、兩種顏色的點、邊、選中的邊、邊上的標籤）
+\tikzset{
+    capv/.style={circle, draw=black!60, thick, minimum size=0.7cm, inner sep=0pt, font=\small},
+    capva/.style={capv, draw=memStroke, fill=memFill},
+    capvb/.style={capv, draw=coreStroke, fill=coreFill},
+    cape/.style={thick, draw=black!45},
+    capehl/.style={line width=1.8pt, draw=memStroke},
+    capw/.style={font=\scriptsize, text=black!75, fill=white, inner sep=1pt},
+    capq/.style={rectangle, rounded corners=3pt, draw=black, thick, fill=black!4,
+        minimum width=3.6cm, minimum height=0.9cm, align=center, font=\sffamily\small},
+}
+
+學校園遊會的場地上有六個攤位、一個正門和一個舞台，中間的走道各要走幾分鐘，畫
+成一張地圖。 總務處、音控組和巡堂老師各拿著這張地圖來問問題：
+
+\begin{itemize}
+\item 總務處要在攤位、正門和舞台之間拉延長線，每一對之間能拉的線長度不同。 電
+可以經過別的攤位轉過去，要讓每個地方都有電，線的總長最少是多少？
+\item 音控組要從正門把音箱推到舞台，最快要幾分鐘？
+\item 巡堂老師從正門出發，每個攤位都要去一次，最後回到正門，最快要幾分鐘？
+\end{itemize}
+
+三個問題用的是同一張地圖，看起來都在問「最少」。 往下讀之前，先想想每一題分別
+要用本書哪一章的方法。
+
+第一題是第~9~章的最小生成樹：要的是一組把大家連起來的線，沒有起點也沒有終點。
+第二題是第~8~章的 Dijkstra：要的是一條從正門到舞台的路。 第三題的點只有八個，
+每個攤位都要去而且順序自己排，是第~4~章的旅行推銷員問題；地圖上兩個攤位之間不
+一定有直接的走道，所以要先用第~8~章算出每兩個地方之間最快要幾分鐘，再做位元
+DP。 同樣的地圖、同樣的「最少」，差別藏在「要連起來」「要一條路」「每個都要
+去」這幾個字裡。
+
+《C++ 演算法解題 1：APCS 實作題核心》（以下簡稱第 1 本）第~14~章整理過讀題的方
+法：一份自問的問題清單、從資料範圍和題目問法找線索、一套固定的解題流程。 那一
+章的內容在這裡都適用，不再重講。 本書前十章每一章教一類技巧，例題也放在那一章
+裡，讀的時候已經知道要用什麼；這一章不教新的技巧，練的是在動態規劃的各種狀態、
+貪心和圖的各種演算法之間做選擇。
+
+第~\ref{sec:cap-questions}~節是針對本書內容的自問清單，第~\ref{sec:cap-clues}~
+節把資料範圍、題目問法和狀態的選法整理成表，第~\ref{sec:cap-flow}~節補充解題流
+程。 接著三題例題都要組合兩章以上的方法，每題都從判斷開始，包括先想錯、再修正的
+過程。 最後是一份不標章節的總題單。
+
+\section{拿到題目時先問自己的問題}
+\label{sec:cap-questions}
+
+第 1 本 14.1 節的清單問的是「看懂了沒」「可以多慢」「怎麼變快」。 下面的清單接
+在它後面，專門用來在本書的十章之間做選擇。 卡住的時候回來看看漏了哪一題。
+
+\textbf{第一組：選擇會不會互相牽制？}
+
+\begin{enumerate}
+\item 每一步的「最好」能不能只看眼前？ 寫一條貪心規則，馬上用三五筆的小例子找
+反例（第 1 本第~7~章）。 找不到反例、又說得出交換論證，才用貪心。
+\item 前面的選擇會改變後面能做什麼嗎？ 會的話，「做到一半的樣子」要記下來，這
+就是動態規劃的狀態。
+\end{enumerate}
+
+\textbf{第二組：如果是動態規劃，狀態要記什麼？}
+
+\begin{enumerate}[resume]
+\item 暴力解在枚舉什麼：挑哪些、排什麼順序、怎麼切、每一位填什麼？
+\item 「之後還能怎麼做」只取決於什麼？ 用一句話寫出來，例如還剩多少容量、做過
+哪幾件、現在在哪裡、這一段的左右端、這一棵子樹。 這句話就是狀態。
+\item 狀態有幾個、每個狀態的轉移要看幾個？ 兩數相乘，和時間限制比；再算一次
+表格要幾個位元組。
+\end{enumerate}
+
+\textbf{第三組：能不能畫成圖？}
+
+\begin{enumerate}[resume]
+\item 東西之間的關係是「誰要在誰之前」「誰和誰不能同組」「從哪裡可以走到哪裡」
+嗎？ 點是什麼、邊是什麼、有沒有方向、有沒有權重？
+\item 要的是一條路，還是一組把大家連起來的邊？ 路上的數字要加起來，還是只看最
+大（最小）的那一段？
+\item 狀態之間的依賴會不會繞回來？ 不會就照順序填表；會的話，把狀態當成點、轉
+移當成邊，改用最短路徑。
+\end{enumerate}
+
+\textbf{第四組：題目還藏了什麼？}
+
+\begin{enumerate}[resume]
+\item 有沒有一個特別小的量（十幾、二十）或特別大的量（$10^{18}$）？ 前者常常
+是位元 DP，後者常常是數位 DP 或對答案二分搜。
+\item 詢問很多，但都在問同一份資料嗎？ 和詢問無關的部分能不能先算好，詢問時只
+查表？
+\end{enumerate}
+
+\section{從題目線索判斷技巧}
+\label{sec:cap-clues}
+
+\subsection{資料範圍}
+
+第 1 本 14.2 節的範圍表列的是第 1 本各章的方法，下表補上本書各章的方法。 「大約」是以一秒、每秒幾億次簡單運算估的。
+
+\begin{center}
+\begin{tabular}{p{0.38\linewidth}p{0.54\linewidth}}
+\toprule
+範圍 & 先想到的方法 \\
+\midrule
+某一個量不超過 $20$，其他量可以很大 & 位元 DP，$2^n \cdot n$ 或 $2^n \cdot n^2$；
+列舉子集合的子集合是 $3^n$，要 $n \le 15$ 左右（第~4~章） \\
+數值到 $10^{18}$，問「有幾個」「加起來多少」 & 數位 DP（第~5~章）；問「第 $K$
+個」時加上沿著位數往下走或二分搜 \\
+$n$ 幾百，子問題是一段一段的 & 區間 DP，$O(n^3)$（第~3~章） \\
+$n \le 500$，問每兩點之間 & Floyd--Warshall，$O(n^3)$（第~8~章） \\
+兩串各幾千 & $O(nm)$ 的表格（第~2~章），放不下時滾動 \\
+物品數乘上容量在 $10^8$ 左右以內 & 背包（第~1~章） \\
+點數、邊數到 $2 \times 10^5$ 的圖或樹 & 拓樸排序、並查集、Dijkstra、Kruskal、樹形
+DP，都在 $O((n + m) \log n)$ 以內（第~6~到第~10~章） \\
+$nm$ 在 $10^8$ 以內，而且有負權重 & Bellman--Ford（第~8~章） \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+前兩列要分清楚：位元 DP 看的是\textbf{個數}很小，數位 DP 看的是\textbf{數值}很大
+但位數很少。 還有一種常見的組合：題目同時給一個很小的 $k$ 和一張很大的圖，例如
+$10^5$ 個路口裡只有十幾個地方非去不可。 這時先在大圖上跑十幾次 Dijkstra，把那
+十幾個地方之間的距離算好，再對它們做位元 DP。
+
+\subsection{題目的問法和資料的形狀}
+
+\begin{center}
+\begin{tabular}{p{0.58\linewidth}p{0.34\linewidth}}
+\toprule
+題目的問法或資料的形狀 & 先試 \\
+\midrule
+有一個總量不能超過（或要剛好），每樣東西各佔一些，挑一些出來 & 背包（第~1~章） \\
+「照原本的順序」「可以跳過」；兩串要互相對應、配對不能交叉；改幾次才相同 & 子序
+列 DP（第~2~章） \\
+操作只發生在相鄰的東西之間；回文、括號、不交叉的配對 & 區間 DP（第~3~章） \\
+要排順序、走遍每個點、分成幾組，而且某個量很小 & 位元 DP（第~4~章） \\
+「$L$ 到 $R$ 之間有幾個數」，條件可以一位一位檢查 & 數位 DP（第~5~章） \\
+「誰要在誰之前」，有向、不會繞成圈；最長、幾種走法、最早完成 & 拓樸順序和 DAG
+上的 DP（第~6~章） \\
+邊一條一條加進來，隨時問連不連通；「同組」「不同組」的限制 & 並查集、二分圖（第~7~章） \\
+每個點剛好一條往外的箭頭，要走很多步 & 函數圖（第~7~章） \\
+從某處到某處，路上的數字加起來最小，可以繞來繞去 & 加權最短路徑（第~8~章） \\
+選一些邊讓大家都連通、總和最小；路上「最窄」「最陡」的那一段要最好 & 最小生成樹、
+瓶頸路徑（第~9~章） \\
+$n$ 個點、$n - 1$ 條邊、全部連通；每個點的答案由子節點組成；「每個點當根」 & 樹形
+DP、換根（第~10~章） \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{動態規劃的狀態怎麼選}
+\label{sec:cap-state}
+
+決定要用動態規劃之後，最難的一步是狀態。 下表把本書各章的狀態放在一起，左欄是
+「子問題長什麼樣」，也就是第~\ref{sec:cap-questions}~節第 4 題那句話的樣子。
+
+\begin{center}
+\begin{tabular}{p{0.4\linewidth}p{0.34\linewidth}p{0.16\linewidth}}
+\toprule
+子問題長什麼樣 & 狀態 & 本書 \\
+\midrule
+從左邊長出來，還要知道用掉多少 & 前 $i$ 個、用了多少容量 & 第~1~章 \\
+挑出來的東西要接成一串 & 以第 $i$ 個結尾；兩串時是前 $i$ 個和前 $j$ 個 & 第~2~章 \\
+拆一次之後，剩下的是中間一段 & 區間 $[l, r]$ & 第~3~章 \\
+之後怎麼做只看「哪些做過了」 & 集合 $S$；需要時加上最後一個 & 第~4~章 \\
+一位一位填數字 & 第幾位、是否貼著上界、再記一點點 & 第~5~章 \\
+輸入本身是一張沒有環的圖 & 圖上的點，照拓樸順序算 & 第~6~章 \\
+輸入是一棵樹 & 子樹的根，加上它自己的選擇 & 第~10~章 \\
+狀態之間會繞回來 & 狀態當成點，用最短路徑 & 第~8~章 8.6 節 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+同一題常常可以用兩種狀態，選狀態數比較少的那一種。 第~1~章 1.7 節「容量太大」
+的情況是一個例子：容量到 $10^9$ 但價值總和很小，就把價值當成表格的一維。 狀態
+寫出來之後，再問一次：知道這些，之後的決定真的就夠了嗎？ 本章的例題三會看到，
+少記一樣東西，答案就會錯。
+
+\subsection{動態規劃、貪心，還是圖}
+\label{sec:cap-decide}
+
+下圖把第一組和第三組的問題接成一條路。 它不是保證，只是一個先後順序：先試最簡
+單的，不行再往下走。
+
+\begin{center}
+\begin{tikzpicture}[node distance=0.6cm and 0.9cm]
+\node[process, minimum width=4.2cm] (brute) {寫出暴力解：\\每一步有哪些選擇};
+\node[capq, below=of brute] (q1) {最好的一步\\不看後面就能決定？};
+\node[process, right=1.2cm of q1, minimum width=3.6cm] (greedy) {貪心\\先找反例、寫交換論證};
+\node[process, below=of q1, minimum width=4.2cm] (state) {把「做到一半的樣子」\\寫成狀態};
+\node[capq, below=of state] (q2) {狀態之間的依賴\\會繞回來嗎？};
+\node[process, right=1.2cm of q2, minimum width=3.6cm] (dp) {照順序填表\\（第~1~到第~6~、10~章）};
+\node[process, below=of q2, minimum width=4.2cm] (sp) {狀態當成點、轉移當成邊\\最短路徑（第~8~章）};
+\draw[flowarrow] (brute) -- (q1);
+\draw[flowarrow] (q1) -- node[above, font=\scriptsize] {能} (greedy);
+\draw[flowarrow] (q1) -- node[right, font=\scriptsize] {不能} (state);
+\draw[flowarrow] (state) -- (q2);
+\draw[flowarrow] (q2) -- node[above, font=\scriptsize] {不會} (dp);
+\draw[flowarrow] (q2) -- node[right, font=\scriptsize] {會} (sp);
+\end{tikzpicture}
+\diagcaption{從暴力解到演算法的先後順序。 圖要選的是一組邊（最小生成樹）時不走這
+條路，見下一小節。}
+\label{fig:cap-decide}
+\end{center}
+
+\textbf{貪心和動態規劃。} 本書好幾章的開頭都先試過一條貪心規則：第~1~章「比值大
+的先拿」、第~3~章「每次合併最少的相鄰兩疊」、第~4~章「每一關挑最熟練的人」、
+第~10~章「營收高的先擺」，四條都有反例。 它們錯的原因相同：眼前的選擇會改變之
+後能選什麼，而規則沒有看到。 反過來，第 1 本第~7~章的區間排程能用貪心，是因為交
+換論證證明了「結束最早的那一場」換進任何最佳解都不吃虧。 所以判斷的順序是：先找
+反例，找不到再試著寫交換論證；兩件事都卡住時，就用動態規劃，它比較慢，但不需要
+猜。
+
+\textbf{動態規劃和最短路徑。} 第 1 本第~9~章 9.2 節說過，每個動態規劃背後都有一
+張 DAG：狀態是點，轉移是邊，計算順序就是拓樸順序（本書第~6~章）。 如果畫出來的
+圖有環，例如狀態是「人在哪個路口」，而路口之間可以來回走，就排不出計算順序，表
+格填不下去。 這時把同一張圖交給最短路徑演算法：權重都是 $1$ 用 BFS，非負用
+Dijkstra，有負的用 Bellman--Ford。 第~8~章 8.6 節的搬運車就是這樣：狀態是「格子
+加朝向」，轉彎和前進都有代價，狀態之間會繞圈，所以用 Dijkstra 而不是填表。
+
+\subsection{藏起來的最短路徑和生成樹}
+\label{sec:cap-hidden}
+
+有些題目讀起來和圖無關，畫出來才發現是最短路徑或生成樹。 下面幾種本書都出現過：
+
+\begin{itemize}
+\item \textbf{等待和時刻表。} 「最早什麼時候到」，可以在原地等，而且早到不會
+吃虧：每個點只要記最早到達的時刻，就是一次 Dijkstra，只是走一條邊的時間要看出發
+的時刻（第~8~章實作練習的「錯開的紅綠燈」「退潮才露出的平台」）。
+\item \textbf{不等式。} 一堆「$x_b \ge x_a + d$」的要求，每一條看成一條帶權重的
+邊，問每個 $x$ 的最小值、最大值或有沒有解，就是最長路、最短路和找正（負）環，
+用 Bellman--Ford（第~8~章實作練習的「校慶彩排的可排時段」）。
+\item \textbf{多一層資訊。} 「最多用一張折價券」「最多轉乘 $k$ 次」，把每個點拆
+成「用了幾張」「轉了幾次」的好幾份，就是第~8~章 8.6 節的狀態圖。
+\item \textbf{最弱的一環。} 「路上最窄的走廊要盡量寬」「最陡的一段要盡量平
+緩」，比的是路上最大（最小）的那一段，不是總和。 這是第~9~章 9.7 節的瓶頸路
+徑，由小到大加邊，用並查集看兩點什麼時候連通就好。
+\item \textbf{全部連起來。} 「讓任兩個都能互通」「每一個都要接上」，而且接法是
+選一些兩兩之間的連線，就是生成樹，不需要指定起點。 只有一部分點非接不可時，就不
+是生成樹了（第~9~章 9.2 節）。
+\end{itemize}
+
+\subsection{線索不是口訣}
+\label{sec:cap-traps}
+
+上面的表是用來縮小範圍的。 背成「看到某個字就用某個演算法」會套錯，下面幾個例
+子的字面線索都指向一個方法，但多了一個條件，那個方法就不能用：
+
+\begin{itemize}
+\item \textbf{「總時間不超過 $T$，挑一些攤位，分數最高」}，但每攤花的時間要看
+前一站在哪裡。 字面上是背包，可是背包要求每樣東西各有固定的重量。 這是例題三。
+\item \textbf{「最陡的坡盡量平緩，一樣平緩時走最短的」}。 字面上是一次 Dijkstra，
+把兩個數一起比；但這樣比會錯，要拆成瓶頸和最短路兩步。 這是例題二。
+\item \textbf{「分成兩隊，人數盡量平均」}，但有些人不能同隊。 字面上是子集合和，
+可是每個人不能自由選隊，要先用二分圖看出誰被綁在一起。 這是例題一。
+\item \textbf{「選一些邊，讓每個村子到鄉公所都盡量近」}。 字面上是「選邊、連通、
+最小」，像最小生成樹；可是最小生成樹只管總長，不管每個點到鄉公所多遠。 這要的
+是從鄉公所出發的最短路徑樹（第~9~章 9.1 節）。
+\end{itemize}
+
+每個例子的處理方式都一樣：表格選出候選之後，回頭確認這個方法需要的前提，題目都
+滿足嗎？
+
+\section{解題流程：本書要多注意的地方}
+\label{sec:cap-flow}
+
+第 1 本 14.3 節的七個步驟（讀題、手算範例、想暴力解、找瓶頸、換技巧、寫程式、
+對拍）照用。 本書的題目在其中三步要多花一點力氣：
+
+\begin{itemize}
+\item \textbf{想暴力解。} 動態規劃和圖的題目，暴力解通常是「試遍所有挑法、排法
+或路線」，只能跑 $n \le 10$ 左右。 這樣就夠了，它的用途是對拍。 題目的第一個子
+題常常就是這個大小。
+\item \textbf{換技巧。} 拆成兩件事分開決定：先決定\textbf{模型}（狀態是什麼；點
+和邊是什麼），再決定\textbf{演算法}（照順序填表、Dijkstra、Kruskal\ldots）。
+模型錯了，演算法再快也沒有用；三題例題裡想錯的地方，都是模型。
+\item \textbf{寫程式。} 題目由好幾個階段組成時（先建圖、再上色、再做背包），每
+寫完一個階段就把中間結果印出來，用範例對一次，再寫下一個階段。 全部寫完才測，
+錯了會不知道是哪一段。
+\end{itemize}
+
+\section{例題一：兩個舞台的人數平衡}
+\label{sec:cap-stages}
+
+\textbf{題意}（\akiref{balancing-two-stages}{兩個舞台的人數平衡}）
+
+\begin{itemize}
+\item 晚會有 $n$ 組表演，每組排到舞台 A 或舞台 B。
+\item 有 $m$ 對表演準備了相同的曲目，同一對不能排在同一個舞台。 同一對可能被重
+複列出。
+\item 舞台 A 有 $x$ 組時，兩邊的差是 $|x - (n - x)|$。 求這個差的最小值 $d$，以及
+有幾種排法剛好達到 $d$，除以 $10^9 + 7$ 的餘數。 只要有一組排的舞台不同就算不
+同的排法，所以整個對調也算另一種。
+\item 怎麼排都會違反限制時，只輸出 \texttt{-1}。
+\item $n \le 5000$，$m \le 2 \times 10^5$。
+\end{itemize}
+
+例如 $n = 7$，限制是 1--2、2--3、4--5、5--6。 把限制畫成圖（下圖），1、2、3 連
+成一群，4、5、6 一群，7 自己一群。 $n$ 是奇數，差至少是 $1$；舞台 A 排 1、3、5，
+舞台 B 排 2、4、6、7 就是 $3$ 對 $4$。 差是 $1$ 的排法一共有 $6$ 種，答案是
+\texttt{1 6}。
+
+\begin{center}
+\begin{tikzpicture}[x=1.2cm, y=1cm]
+\node[capva] (1) at (0,0) {1};
+\node[capvb] (2) at (1,0) {2};
+\node[capva] (3) at (2,0) {3};
+\node[capva] (4) at (3.6,0) {4};
+\node[capvb] (5) at (4.6,0) {5};
+\node[capva] (6) at (5.6,0) {6};
+\node[capva] (7) at (7.2,0) {7};
+\draw[cape] (1) -- (2) -- (3);
+\draw[cape] (4) -- (5) -- (6);
+\node[font=\scriptsize, text=black!70] at (1,-0.75) {$(2, 1)$};
+\node[font=\scriptsize, text=black!70] at (4.6,-0.75) {$(2, 1)$};
+\node[font=\scriptsize, text=black!70] at (7.2,-0.75) {$(1, 0)$};
+\end{tikzpicture}
+\diagcaption{範例一的限制畫成圖，每一群從編號最小的那組開始上兩種顏色。 下方
+括號裡是這一群橘色、藍色各有幾組。 每一群只能整群決定「橘色去 A」或「藍色去
+A」。}
+\label{fig:cap-stages}
+\end{center}
+
+\textbf{判斷}
+
+「不能排在同一個舞台」，而且只有兩個舞台：這是第~7~章 7.4 節的二分圖，用 BFS
+上兩種顏色，碰到相鄰兩點同色就是奇環，輸出 \texttt{-1}。 可是上色只回答了「能
+不能排」。 一群裡只要決定一組在哪一邊，其他組就全部跟著定了，所以每一群剛好有
+兩種排法：橘色的去 A，或藍色的去 A。 範例的三群分別讓 A 多出 $2$ 或 $1$ 組、
+$2$ 或 $1$ 組、$1$ 或 $0$ 組。
+
+接下來是「兩邊盡量平均」。 字面上像第~1~章 1.5 節的子集合和：把東西分成兩
+堆，總和盡量接近。
+
+\textbf{第一次想錯：貪心。} 一群一群處理，每次把人多的那一邊放到目前人少的舞
+台。 試範例二：$n = 6$，限制是 3--4、3--5、3--6。 群是 $\{1\}$、$\{2\}$ 和
+$\{3, 4, 5, 6\}$，最後一群一邊 $1$ 組（3）、一邊 $3$ 組（4、5、6）。 照編號
+處理，1 去 A、2 去 B，兩邊一樣多；最後一群人多的那邊隨便放到一邊，就變成 $4$
+對 $2$，差是 $2$。 正確答案是 $0$：1、2、3 在一邊，4、5、6 在另一邊。 先排大
+的群也不行，這和「分兩堆」的貪心一樣有反例：五群各讓兩邊差 $3$、$3$、$2$、
+$2$、$2$ 組時，由大到小輪流放到少的一邊，最後差 $2$，可是 $3 + 3 = 2 + 2 + 2$，
+差可以是 $0$。 前面的選擇會影響後面怎麼湊，這是第一組問題的第 2 題，要動態規
+劃。
+
+\textbf{換成背包。} 把每一群看成一組東西，裡面有兩個選項：讓舞台 A 多 $a$ 組，
+或多 $b$ 組，每組\textbf{恰好選一個}。 這是第~1~章 1.7 節「每組恰好選一個」的
+背包，容量是舞台 A 的組數，最多 $n$。 題目還要排法數，所以把取最大值換成加法，
+像第~1~章 1.5 節數方法數那樣：
+
+\begin{itemize}
+\item \textbf{狀態}：$\mathit{ways}[x]$ 是處理完前幾群之後，舞台 A 剛好 $x$ 組的
+排法數。
+\item \textbf{轉移}：處理一群 $(a, b)$ 時，開一個新的陣列，
+$\mathit{next}[x + a] \mathrel{+}= \mathit{ways}[x]$，
+$\mathit{next}[x + b] \mathrel{+}= \mathit{ways}[x]$。
+\item \textbf{初始值}：還沒處理任何一群時，$\mathit{ways}[0] = 1$。
+\item \textbf{答案}：全部處理完，在做得到的 $x$ 裡找 $|2x - n|$ 最小的；
+$x$ 和 $n - x$ 的差一樣，兩個都要加起來。
+\end{itemize}
+
+範例一的三群依序是 $(2, 1)$、$(2, 1)$、$(1, 0)$，表格的變化如下（空白是
+$0$）：
+
+\begin{center}
+\begin{tabular}{lcccccccc}
+\toprule
+處理完 & $x = 0$ & $1$ & $2$ & $3$ & $4$ & $5$ & $6$ & $7$ \\
+\midrule
+還沒開始 & 1 & & & & & & & \\
+第一群 $(2, 1)$ & & 1 & 1 & & & & & \\
+第二群 $(2, 1)$ & & & 1 & 2 & 1 & & & \\
+第三群 $(1, 0)$ & & & 1 & 3 & 3 & 1 & & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+$x = 3$ 和 $x = 4$ 的差都是 $1$，排法數 $3 + 3 = 6$。
+
+\textbf{程式}
+
+\begin{example}[label=ex:cap-stages]{cpp}{(stages.cpp) 兩個舞台的人數平衡}
+#include <cstdlib>
+#include <iostream>
+#include <queue>
+#include <utility>
+#include <vector>
+using namespace std;
+
+const long long MOD = 1000000007;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, m;
+    cin >> n >> m;
+    vector<vector<int>> adj(n + 1);
+    for (int i = 0; i < m; i++) {
+        int u, v;
+        cin >> u >> v;
+        adj[u].push_back(v);
+        adj[v].push_back(u);
+    }
+    // 第一步：每一群用 BFS 上兩色，記下兩色各有幾組
+    vector<int> color(n + 1, -1);
+    vector<pair<int, int>> group;     // 每一群兩種顏色各幾組
+    for (int s = 1; s <= n; s++) {
+        if (color[s] != -1) {
+            continue;
+        }
+        int cnt[2] = {0, 0};
+        queue<int> q;
+        color[s] = 0;
+        q.push(s);
+        while (!q.empty()) {
+            int u = q.front();
+            q.pop();
+            cnt[color[u]]++;
+            for (int v : adj[u]) {
+                if (color[v] == -1) {
+                    color[v] = 1 - color[u];
+                    q.push(v);
+                } else if (color[v] == color[u]) {
+                    cout << -1 << '\n';          // 奇環，分不成兩邊
+                    return 0;
+                }
+            }
+        }
+        group.push_back({cnt[0], cnt[1]});
+    }
+    // 第二步：每群恰好選一邊去舞台 A 的背包
+    // ways[x]：舞台 A 剛好 x 組的排法數（模 MOD）
+    // can[x]：舞台 A 剛好 x 組做不做得到
+    vector<long long> ways(n + 1, 0);
+    vector<char> can(n + 1, 0);
+    ways[0] = 1;
+    can[0] = 1;
+    int total = 0;                    // 已處理的群加起來幾組
+    for (auto [a, b] : group) {
+        vector<long long> nways(n + 1, 0);
+        vector<char> ncan(n + 1, 0);
+        for (int x = 0; x <= total; x++) {
+            if (!can[x]) {
+                continue;
+            }
+            // 這一群顏色 0 的去 A，或顏色 1 的去 A
+            nways[x + a] = (nways[x + a] + ways[x]) % MOD;
+            nways[x + b] = (nways[x + b] + ways[x]) % MOD;
+            ncan[x + a] = ncan[x + b] = 1;
+        }
+        ways = nways;
+        can = ncan;
+        total += a + b;
+    }
+    int d = n + 1;
+    for (int x = 0; x <= n; x++) {
+        if (can[x]) {
+            d = min(d, abs(2 * x - n));
+        }
+    }
+    long long count = 0;
+    for (int x = 0; x <= n; x++) {    // A 比較多、比較少都要算
+        if (can[x] && abs(2 * x - n) == d) {
+            count = (count + ways[x]) % MOD;
+        }
+    }
+    cout << d << ' ' << count << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+7 4 \\
+1 2 \\
+2 3 \\
+4 5 \\
+5 6 \\
+}{
+1 6 \\
+}
+
+\begin{itemize}
+\item 「做不做得到」用另一個陣列 \texttt{can} 記，不用 \texttt{ways[x] != 0}
+判斷。 排法數是取過餘數的，真正的排法數不是 $0$，餘數卻可能剛好是 $0$。 這種情
+況很少見，測試資料可能測不到，但它是錯的。
+\item 一群的兩種顏色一樣多時（$a = b$），兩行都加到同一格，那一格加了兩次。 這
+是對的：橘色去 A 和藍色去 A 是兩種不同的排法，只是人數相同。
+\item 奇環一出現就可以結束：不管其他群怎麼排，這一群已經排不了。
+\item \texttt{x} 只跑到 \texttt{total}，也就是已經處理的群加起來的組數；更大的
+\texttt{x} 一定做不到。 \texttt{x + a}、\texttt{x + b} 也不會超過 $n$。
+\end{itemize}
+
+\textbf{對拍用的暴力解}
+
+題目的第一個子題是 $n \le 15$。 這個大小可以試遍 $2^n$ 種排法，一個一個檢查限
+制，正好拿來對拍：
+
+\begin{example}[label=ex:cap-stages-brute]{cpp}{(stages\_brute.cpp) 兩個舞台的暴力解}
+#include <cstdlib>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n, m;
+    cin >> n >> m;
+    vector<int> u(m), v(m);
+    for (int i = 0; i < m; i++) {
+        cin >> u[i] >> v[i];
+        u[i]--;
+        v[i]--;
+    }
+    int best = n + 1;
+    long long count = 0;
+    // mask 的第 i 位是 1：第 i + 1 組排在舞台 A
+    for (int mask = 0; mask < (1 << n); mask++) {
+        bool ok = true;
+        for (int i = 0; i < m && ok; i++) {
+            if (((mask >> u[i]) & 1) == ((mask >> v[i]) & 1)) {
+                ok = false;
+            }
+        }
+        if (!ok) {
+            continue;
+        }
+        int d = abs(2 * __builtin_popcount(mask) - n);
+        if (d < best) {
+            best = d;
+            count = 0;
+        }
+        if (d == best) {
+            count++;
+        }
+    }
+    if (best > n) {
+        cout << -1 << '\n';
+    } else {
+        cout << best << ' ' << count << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+6 3 \\
+3 4 \\
+3 5 \\
+3 6 \\
+}{
+0 2 \\
+}
+
+題目其他兩個子題也是提示。 「群的數量不超過 $18$」是在說：每群只有兩種選擇，
+試遍 $2^{18}$ 種也來得及，這一步就已經看出「以群為單位」。 「$m = 0$」時每組自
+己一群，舞台 A 有 $x$ 組的排法數是組合數 $\binom{n}{x}$。 讀完子題再決定做法，
+常常能少走一段冤枉路。
+
+\textbf{複雜度}
+
+BFS 是 $O(n + m)$。 背包最多 $n$ 群，每群掃最多 $n + 1$ 格，最壞約
+$5000 \times 5000 = 2.5 \times 10^7$ 次。 最大的測試資料在本書測試的環境下約
+$0.02$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{貪心地放到人少的一邊}：範例二印出差 \texttt{2}，正確是 \texttt{0}。
+\item \textbf{兩色一樣多時只加一次}：以為兩種排法人數一樣就是同一種。 輸入
+\texttt{2 1}、\texttt{1 2} 時，正確答案是 \texttt{0 2}（1 在 A 或 2 在 A），這樣
+寫印出 \texttt{0 1}。
+\item \textbf{只算 A 比較少的那一邊}：答案只加 $x \le n / 2$ 的那一格，範例一印
+出 \texttt{1 3}。 題目說整個對調也算另一種，$x = 3$ 和 $x = 4$ 都要算。
+\item \textbf{沒有檢查奇環}：上色時碰到同色的鄰居沒有處理。 輸入 \texttt{3 3}、
+\texttt{1 2}、\texttt{2 3}、\texttt{3 1} 時應該印出 \texttt{-1}，這樣寫印出
+\texttt{1 2}。
+\end{itemize}
+
+\section{例題二：坡度最緩的輪椅路線}
+\label{sec:cap-slope}
+
+\textbf{題意}（\akiref{the-gentlest-wheelchair-route}{坡度最緩的輪椅路線}）
+
+\begin{itemize}
+\item $n$ 個地點、$m$ 條雙向步道，第 $i$ 條連接 $u_i$ 和 $v_i$，長度 $l_i$，坡
+度等級 $g_i$。 同一對地點之間可能有好幾條步道。
+\item 一條路線的「最陡坡度」是路上坡度等級的最大值，「總長度」是長度的總和。
+\item 從 $s$ 到 $t$，先讓最陡坡度最小，記為 $G$；最陡坡度等於 $G$ 的路線裡，再
+選總長度最短的。 輸出 $G$ 和這個總長度；到不了 $t$ 時輸出 \texttt{-1}。
+\item $n \le 10^5$，$m \le 2 \times 10^5$，$l_i, g_i \le 10^9$。
+\end{itemize}
+
+下圖是題目的範例一，$s = 1$、$t = 5$，邊上寫著「長度／坡度」。 走 $1 \to 4 \to 5$
+最短，可是坡度是 $5$。 最陡坡度可以壓到 $3$，有兩條：$1 \to 3 \to 5$ 長 $5$，
+$1 \to 2 \to 3 \to 5$ 長 $11$。 答案是 \texttt{3 5}。
+
+\begin{center}
+\begin{tikzpicture}[x=1.5cm, y=1.1cm]
+\node[capv] (1) at (0,1) {1};
+\node[capv] (2) at (1.5,2.2) {2};
+\node[capv] (3) at (3,1) {3};
+\node[capv] (4) at (2.25,-0.4) {4};
+\node[capv] (5) at (4.5,1) {5};
+\draw[cape] (1) -- node[capw, above left] {4/1} (2);
+\draw[cape] (2) -- node[capw, above right] {4/1} (3);
+\draw[capehl] (1) -- node[capw] {2/2} (3);
+\draw[capehl] (3) -- node[capw] {3/3} (5);
+\draw[cape] (1) -- node[capw, below left] {1/5} (4);
+\draw[cape] (4) -- node[capw, below right] {1/5} (5);
+\end{tikzpicture}
+\diagcaption{範例一，邊上是「長度／坡度」。 橘色是答案的路線 $1 \to 3 \to 5$。
+走到 $3$ 時，從 $2$ 繞過來比較平緩，可是比較長。}
+\label{fig:cap-slope}
+\end{center}
+
+\textbf{判斷}
+
+「從 $s$ 到 $t$」「最短」，邊有權重：第~8~章的 Dijkstra。 可是這題有兩個標準，
+而且第一個標準「最陡的一段最小」比的不是總和，是第~\ref{sec:cap-hidden}~小節說
+的「最弱的一環」。
+
+\textbf{第一次想錯：一次 Dijkstra，兩個數一起比。} 把每個點的標籤改成一對數
+（最陡坡度，總長度），比較時先比坡度、一樣再比長度；走一條邊時坡度取最大值、長
+度相加。 範例一會印出 \texttt{3 11}。 看點 $3$：從 $1 \to 2 \to 3$ 來是
+$(1, 8)$，從 $1 \to 3$ 來是 $(2, 2)$。 照這個比法 $(1, 8)$ 比較好，點 $3$ 只留下
+它。 可是接上 $3 \to 5$ 這條坡度 $3$ 的步道之後，兩個都變成坡度 $3$，長度是
+$11$ 和 $5$，被丟掉的那一個反而比較好。
+
+錯在哪裡？ Dijkstra 每個點只留一個最好的值，靠的是：到 $u$ 比較好的走法，接上
+同一條邊之後還是比較好（至少不會變差）。 第~8~章 8.2 節的證明默默用到這件事，總
+長度有這個性質，兩個數加上同一個數，大小順序不變。 （坡度，長度）這一對沒有：取最大值會把坡度的差別抹掉，抹掉
+之後要比長度，長度的順序剛好相反。 所以一個點只留一個「最好」的標籤是不夠的。
+
+\textbf{第二次想錯：最小生成樹上的路。} 第~9~章 9.7 節證明過，最小生成樹上 $s$
+到 $t$ 的那條路，最陡的一段就是所有路線裡最小的 $G$。 那就在最小生成樹上找這條
+路，順便算長度？ 範例一的 Kruskal 依坡度先選 1--2、2--3（坡度 $1$），1--3 會造
+成環所以不選，再選 3--5，樹上的路是 $1 \to 2 \to 3 \to 5$，長 $11$，又印出
+\texttt{3 11}。 樹上的路保證坡度最小，但它只是坡度最小的路線之一，生成樹不管長
+度。
+
+\textbf{修正：拆成兩步。} 兩次想錯的地方都是把兩個標準混在一起。 分開來看：
+
+\begin{enumerate}
+\item \textbf{先求 $G$。} 步道依坡度由小到大，用並查集一條一條接上（第~9~章 9.7
+節的離線做法），接完某一條之後 $s$ 和 $t$ 第一次連通，這一條的坡度就是 $G$。 在
+它之前接上的步道都連不通 $s$ 和 $t$，所以沒有最陡坡度比 $G$ 小的路線；接上它之
+後，有一條全部坡度都 $\le G$ 的路線。 整個過程沒有連通，就輸出 \texttt{-1}。
+\item \textbf{再求長度。} 最陡坡度剛好是 $G$ 的路線，就是「只用坡度 $\le G$ 的步
+道」的路線：這種路線的最陡坡度 $\le G$，又不可能比 $G$ 小。 所以把坡度 $\le G$
+的步道\textbf{全部}留下（不只是生成樹上的），在上面做一次普通的 Dijkstra。
+\end{enumerate}
+
+範例一的第一步接完 1--2、2--3、1--3、3--5 時 $1$ 和 $5$ 連通，$G = 3$。 第二步
+只用這四條步道，最短的是 $1 \to 3 \to 5$，長 $5$。
+
+\textbf{程式}
+
+\begin{example}[label=ex:cap-slope]{cpp}{(slope.cpp) 坡度最緩的輪椅路線}
+#include <algorithm>
+#include <functional>
+#include <iostream>
+#include <queue>
+#include <utility>
+#include <vector>
+using namespace std;
+
+struct Edge {
+    int u, v;
+    long long len, g;
+};
+
+const long long INF = 1e18;
+vector<int> parent, sz;
+
+int find(int x) {
+    return parent[x] == x ? x : parent[x] = find(parent[x]);
+}
+
+void unite(int a, int b) {
+    a = find(a);
+    b = find(b);
+    if (a == b) {
+        return;
+    }
+    if (sz[a] > sz[b]) {
+        swap(a, b);
+    }
+    parent[a] = b;
+    sz[b] += sz[a];
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, m, s, t;
+    cin >> n >> m >> s >> t;
+    vector<Edge> edges(m);
+    for (Edge &e : edges) {
+        cin >> e.u >> e.v >> e.len >> e.g;
+    }
+    // 第一步：坡度由小到大加邊，s 和 t 一連通，最後加的坡度就是 G
+    vector<Edge> byG = edges;
+    sort(byG.begin(), byG.end(),
+         [](const Edge &a, const Edge &b) { return a.g < b.g; });
+    parent.resize(n + 1);
+    sz.assign(n + 1, 1);
+    for (int v = 1; v <= n; v++) {
+        parent[v] = v;
+    }
+    long long G = -1;
+    for (const Edge &e : byG) {
+        unite(e.u, e.v);
+        if (find(s) == find(t)) {
+            G = e.g;
+            break;
+        }
+    }
+    if (G == -1) {
+        cout << -1 << '\n';
+        return 0;
+    }
+    // 第二步：只用坡度不超過 G 的步道，做 Dijkstra
+    vector<vector<pair<int, long long>>> adj(n + 1);
+    for (const Edge &e : edges) {
+        if (e.g <= G) {
+            adj[e.u].push_back({e.v, e.len});
+            adj[e.v].push_back({e.u, e.len});
+        }
+    }
+    vector<long long> dist(n + 1, INF);
+    priority_queue<pair<long long, int>, vector<pair<long long, int>>,
+                   greater<pair<long long, int>>> pq;
+    dist[s] = 0;
+    pq.push({0, s});
+    while (!pq.empty()) {
+        auto [d, u] = pq.top();
+        pq.pop();
+        if (d != dist[u]) {
+            continue;
+        }
+        for (auto [v, w] : adj[u]) {
+            if (d + w < dist[v]) {
+                dist[v] = d + w;
+                pq.push({dist[v], v});
+            }
+        }
+    }
+    cout << G << ' ' << dist[t] << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+5 6 1 5 \\
+1 2 4 1 \\
+2 3 4 1 \\
+1 3 2 2 \\
+3 5 3 3 \\
+1 4 1 5 \\
+4 5 1 5 \\
+}{
+3 5 \\
+}
+
+\begin{itemize}
+\item 並查集和 Dijkstra 都是前面各章的寫法，沒有改動；這題的工作全在決定「先做
+哪一個、把什麼交給下一步」。
+\item 第一步走到 $G$ 就停，不必把所有步道接完。 第二步一定走得到 $t$，因為第一
+步已經確認過了。
+\item 總長度最多約 $10^5 \times 10^9 = 10^{14}$，\texttt{dist} 要用
+\texttt{long long}。
+\end{itemize}
+
+\textbf{複雜度}
+
+排序 $O(m \log m)$，並查集幾乎是線性，Dijkstra 是 $O((n + m) \log n)$。 最大的
+測試資料在本書測試的環境下約 $0.05$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{（坡度，長度）一起比的 Dijkstra}：範例一印出 \texttt{3 11}。 題目的
+完整測試資料裡，這樣寫錯了 $11$ 筆。
+\item \textbf{只在最小生成樹上找路}：範例一同樣印出 \texttt{3 11}。 生成樹只保
+證最陡的一段，長度要回到所有坡度 $\le G$ 的步道上算。
+\item \textbf{第二步用「坡度 $< G$」}：等於 $G$ 的步道被拿掉，範例一的 3--5 不見
+了，$5$ 走不到，\texttt{dist[t]} 是無限大。 不等號要和 $G$ 的定義一致。
+\end{itemize}
+
+\section{例題三：社團博覽會的體驗時間}
+\label{sec:cap-expo}
+
+\textbf{題意}（\akiref{booth-hopping-at-the-club-fair}{社團博覽會的體驗時間}）
+
+\begin{itemize}
+\item 有 $n$ 個體驗攤位，正門是地點 $0$。 完成攤位 $i$ 的體驗得 $p_i$ 分。
+\item $t_{i,j}$ 是從地點 $i$ 直接到地點 $j$ 的分鐘數，已經包含在 $j$ 體驗的時間；
+$t_{i,0}$ 是走回正門的時間。 表不一定對稱，也不保證繞路比較慢。 每一步都要直接
+走過去，不能經過別的攤位或正門轉過去。
+\item 有 $q$ 位新生，第 $k$ 位有 $T_k$ 分鐘。 每人各自從正門出發，去若干個不同的
+攤位，最後回到正門，總時間不超過 $T_k$；也可以一攤都不去。 對每個人求最高的分數。
+\item $n \le 16$，$q \le 2 \times 10^5$，$t_{i,j} \le 10^6$，$T_k \le 10^9$。
+\end{itemize}
+
+下面用題目的範例二說明：三個攤位，分數 $8$、$5$、$5$，時間表如下（第 $i$ 列第
+$j$ 行是 $t_{i,j}$）。 攤位 1 來回 $3 + 3 = 6$ 分鐘，得 $8$ 分；攤位 2、3 彼此只
+要 $2$ 分鐘，$0 \to 2 \to 3 \to 0$ 要 $4 + 2 + 4 = 10$ 分鐘，得 $10$ 分。 有 $10$
+分鐘的人選後者，有 $6$ 到 $9$ 分鐘的人只能去攤位 1。
+
+\begin{center}
+\begin{tabular}{c|cccc}
+\toprule
+從 \textbackslash{} 到 & 0 & 1 & 2 & 3 \\
+\midrule
+0 & 0 & 3 & 4 & 4 \\
+1 & 3 & 0 & 6 & 6 \\
+2 & 4 & 6 & 0 & 2 \\
+3 & 4 & 6 & 2 & 0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{判斷}
+
+「時間不超過 $T$，挑一些攤位，每攤最多一次，分數最高」：字面上是第~1~章的 0/1
+背包。 檢查背包的前提：每樣東西要有\textbf{固定}的重量。 這裡去一個攤位花多少
+時間，要看前一站在哪裡、下一站去哪裡，同樣是攤位 2，接在攤位 3 後面只要 $2$ 分
+鐘，從正門過去要 $4$ 分鐘。 沒有固定的重量，背包不能用。
+
+時間和順序有關，就要排順序。 第四組問題的第 9 題：$n \le 16$ 特別小，指向第~4~
+章。 排順序時，「之後還要多少時間」只看兩件事：已經去過哪些攤位、現在在哪一攤。
+這正是第~4~章 4.3 節旅行推銷員的狀態 $(S, \mathit{last})$。 有些位元 DP 的題目
+要先用第~8~章算出地點之間的最短距離，這一題不用，也不能：題目規定每一步要直接
+走，經過別的攤位就等於去了那一攤。
+
+\textbf{第一次想錯：每個人各做一次。} 對每位新生，做一次旅行推銷員的 DP，看哪
+些集合走得完。 一次 DP 是 $2^{16} \times 16 \times 16 \approx 1.7 \times 10^7$，
+乘上 $q = 2 \times 10^5$ 位新生，完全來不及。
+
+\textbf{找瓶頸。} 這是第四組問題的第 10 題。 DP 裡沒有用到 $T$：一個集合走完要
+多少時間，和誰來走無關，$T$ 只在最後比一下。 所以 DP 只做一次，對每個集合 $S$
+算出
+\[
+\mathit{cost}(S) = \min_{\mathit{last} \in S}\bigl(\mathit{dp}[S][\mathit{last}]
++ t_{\mathit{last}, 0}\bigr),
+\]
+也就是去過剛好 $S$ 這些攤位、再回到正門的最少時間，以及 $S$ 的分數總和
+$\mathit{score}(S)$。 空集合的時間和分數都是 $0$。
+
+每個詢問變成：$\mathit{cost}(S) \le T$ 的集合裡，最大的 $\mathit{score}(S)$。
+$2^{16}$ 個集合每個人都掃一遍，是 $2 \times 10^5 \times 65536 \approx 1.3 \times
+10^{10}$，還是太慢。 把 $2^n$ 個 $(\mathit{cost}, \mathit{score})$ 依時間排序，
+算分數的前綴最大值，詢問時用 \texttt{upper\_bound} 找到最後一個時間 $\le T$ 的
+位置，讀那裡的前綴最大值（第 1 本第~2、3~章）。
+
+範例二排序之後是這樣：
+
+\begin{center}
+\begin{tabular}{lcccccccc}
+\toprule
+集合 & 空 & $\{1\}$ & $\{2\}$ & $\{3\}$ & $\{2, 3\}$ & $\{1, 2\}$ & $\{1, 3\}$ & $\{1, 2, 3\}$ \\
+\midrule
+時間 & 0 & 6 & 8 & 8 & 10 & 13 & 13 & 15 \\
+分數 & 0 & 8 & 5 & 5 & 10 & 13 & 13 & 18 \\
+前綴最大值 & 0 & 8 & 8 & 8 & 10 & 13 & 13 & 18 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+$T = 10$ 時最後一個時間 $\le 10$ 的是 $\{2, 3\}$，答案 $10$；$T = 9$ 落在
+$\{3\}$，答案 $8$；$T = 5$ 只有空集合，答案 $0$。
+
+\textbf{程式}
+
+\begin{example}[label=ex:cap-expo]{cpp}{(expo.cpp) 社團博覽會的體驗時間}
+#include <algorithm>
+#include <iostream>
+#include <utility>
+#include <vector>
+using namespace std;
+
+const long long INF = 1e18;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, q;
+    cin >> n >> q;
+    vector<long long> p(n);
+    for (long long &x : p) {
+        cin >> x;
+    }
+    vector<vector<long long>> t(n + 1, vector<long long>(n + 1));
+    for (auto &row : t) {
+        for (long long &x : row) {
+            cin >> x;
+        }
+    }
+    // 攤位在程式裡編號 0 到 n - 1，地點編號是攤位編號加 1
+    // 正門是地點 0
+    int full = (1 << n) - 1;
+    // dp[mask][last]：去過的攤位剛好是 mask、現在在 last 的最少時間
+    vector<vector<long long>> dp(1 << n, vector<long long>(n, INF));
+    for (int i = 0; i < n; i++) {
+        dp[1 << i][i] = t[0][i + 1];
+    }
+    for (int mask = 1; mask <= full; mask++) {
+        for (int last = 0; last < n; last++) {
+            long long cur = dp[mask][last];
+            if (cur == INF) {
+                continue;
+            }
+            for (int j = 0; j < n; j++) {
+                if ((mask >> j) & 1) {
+                    continue;
+                }
+                long long cost = cur + t[last + 1][j + 1];
+                long long &target = dp[mask | (1 << j)][j];
+                target = min(target, cost);
+            }
+        }
+    }
+    // 每個集合：走完再回正門的最少時間、分數總和
+    // plan[mask]：(時間, 分數)
+    vector<pair<long long, long long>> plan(1 << n);
+    plan[0] = {0, 0};
+    for (int mask = 1; mask <= full; mask++) {
+        long long best = INF;
+        for (int last = 0; last < n; last++) {
+            if (dp[mask][last] < INF) {
+                best = min(best, dp[mask][last] + t[last + 1][0]);
+            }
+        }
+        int low = __builtin_ctz(mask);
+        long long score = plan[mask & (mask - 1)].second + p[low];
+        plan[mask] = {best, score};
+    }
+    // 依時間排序；maxScore[k]：前 k + 1 個集合裡最高的分數
+    sort(plan.begin(), plan.end());
+    vector<long long> times(plan.size()), maxScore(plan.size());
+    for (size_t k = 0; k < plan.size(); k++) {
+        times[k] = plan[k].first;
+        maxScore[k] = plan[k].second;
+        if (k > 0) {
+            maxScore[k] = max(maxScore[k], maxScore[k - 1]);
+        }
+    }
+    for (int i = 0; i < q; i++) {
+        long long T;
+        cin >> T;
+        // 時間 <= T 的集合是前面 k 個，空集合一定在裡面
+        auto it = upper_bound(times.begin(), times.end(), T);
+        int k = it - times.begin();
+        cout << maxScore[k - 1] << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 4 \\
+8 5 5 \\
+0 3 4 4 \\
+3 0 6 6 \\
+4 6 0 2 \\
+4 6 2 0 \\
+10 6 9 5 \\
+}{
+10 \\
+8 \\
+8 \\
+0 \\
+}
+
+\begin{itemize}
+\item DP 的部分和第~4~章 4.4 節的回收推車幾乎一樣，只是那一題只要「全部去過」
+的答案，這一題每個集合都要。 \texttt{cost(S)} 的定義是「剛好去過 $S$」，所以每
+個集合都要各自加上回正門的時間，不能只看 \texttt{full}。
+\item 分數總和用第~4~章的寫法，從拿掉最低位的集合加一項得到。 \texttt{plan[mask
+\& (mask - 1)]} 在這時候還沒被排序打亂，因為排序在迴圈後面。
+\item 空集合 \texttt{plan[0]} 的時間是 $0$，題目保證 $T \ge 1$，所以
+\texttt{upper\_bound} 的結果至少是 $1$，\texttt{k - 1} 不會是 $-1$。
+\end{itemize}
+
+\textbf{複雜度}
+
+DP 是 $2^{16} \times 16 \times 16 \approx 1.7 \times 10^7$ 次轉移，表格是
+$2^{16} \times 16$ 個 \texttt{long long}，約 $8$ MB。 排序 $2^{16}$ 筆，每個詢問
+一次二分搜，約 $16$ 步。 最大的測試資料在本書測試的環境下約 $0.04$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{忘了回程}：\texttt{cost} 只取 \texttt{dp[mask][last]}，沒有加上回
+正門的時間。 範例一的第一位新生有 $20$ 分鐘，正確答案是 \texttt{13}，這樣寫印出
+\texttt{23}：四攤依序走到最後一攤剛好 $20$ 分鐘，可是走不回來。
+\item \textbf{先跑 Floyd--Warshall}：習慣性地先把時間表換成最短時間。 題目規定
+不能經過別的攤位轉過去，這樣做會讓「路過」的攤位不算數。 輸入
+\texttt{2 1}、\texttt{1 5}、\texttt{0 1 10}、\texttt{1 0 1}、\texttt{10 1 0}、
+\texttt{4}（六行）時正確答案是 \texttt{1}，這樣寫印出 \texttt{6}。 題目的兩個範
+例都測不出來，完整測試資料裡錯了 $4$ 筆。
+\item \textbf{沒有放空集合}：\texttt{plan} 只放非空的集合。 範例二的 $T = 5$ 時
+\texttt{k} 是 $0$，讀到 \texttt{maxScore[-1]}，這是未定義的行為。
+\item \textbf{每個詢問各做一次 DP}：答案對，但 $q$ 一大就超過時間限制。
+\end{itemize}
+
+回頭看三題的判斷：例題一先用圖看出誰被綁在一起，再用背包；例題二先用生成樹的想法
+求瓶頸，再用最短路徑；例題三先排除背包，用位元 DP 對每個集合算一次，再用排序和二
+分搜回答詢問。 每一題用的都是學過的東西，難在看出要拆成哪幾步、每一步交給哪一章。
+
+\section{考場策略}
+\label{sec:cap-exam}
+
+第 1 本 14.8 節整理了 APCS 實作題官方公告的作答與計分規則，以及從規則推出來的時
+間分配。 那些建議在這裡照用；下面補充本書這類題目要多注意的幾件事。
+
+\begin{itemize}
+\item \textbf{子題是提示。} 例題一的三個子題分別在說「可以試遍每一組」「可以試
+遍每一群」「沒有限制時是組合數」，第二個子題已經點出「以群為單位」。 動手之前，
+把每個子題的限制讀一次，問自己這個限制讓什麼做法變得可行。
+\item \textbf{先寫能拿到小子題的暴力解。} 動態規劃和圖的題目，暴力解常常就是第
+1 本第~4~章的枚舉。 它先拿到部分分，等一下也是對拍的工具。
+\item \textbf{寫表格之前先算記憶體。} 例題三是 $2^{16} \times 16$ 個
+\texttt{long long}，$8$ MB；同樣的寫法遇到 $n = 20$ 就是 $160$ MB。 每格的值用
+\texttt{int} 放得下時，記憶體就少一半。
+\end{itemize}
+
+\begin{apcsnote}
+官方公告的題本種類、檢測時間、計分方式和上傳規則，整理在第 1 本 14.8 節，依的是
+2026 年 11 月的官網公告。 規則會調整，報名前請再看一次官網，以官網和考試時題目
+上寫的為準。
+\end{apcsnote}
+
+\section{本章常見錯誤}
+\label{sec:cap-pitfalls}
+
+這一章的錯誤大多出在「選模型」，演算法本身都寫對了。
+
+\begin{center}
+\begin{tabular}{p{0.22\linewidth}p{0.46\linewidth}p{0.22\linewidth}}
+\toprule
+錯誤 & 例子 & 該問的問題 \\
+\midrule
+套用前沒確認前提 & 例題三當成背包；例題二以為 Dijkstra 能同時比兩個數 & 這個方法需要
+什麼？ \\
+貪心沒先找反例 & 例題一放到人少的一邊 & 第一組第 1 題 \\
+狀態少記一樣 & 例題二每個點只留一個標籤；例題三忘了回程 & 第二組第 4 題 \\
+兩個標準混在一起 & 例題二在生成樹上找路 & 能不能拆成兩步？ \\
+多做了題目不准的事 & 例題三先跑 Floyd--Warshall & 回頭讀題 \\
+算重或漏算 & 例題一兩色一樣多只加一次、只算一邊 & 用暴力解對拍 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+最後兩列都是範例測不出來的錯誤。 例題三的 Floyd--Warshall 兩個範例都會過，例題一
+「只加一次」要遇到兩色一樣多的群才會錯。 第 1 本第~1~章的對拍腳本，在這一章的每
+一題都值得跑一次。
+
+\section{本章練習}
+\label{sec:cap-exercises}
+
+\begin{drills}[label=drills:cap]
+\item 下面每一題只給大意和範圍。 寫出你第一個想試的方法、它的複雜度，以及它在
+本書的哪一章。
+\begin{enumerate}
+\item $n \le 10^5$ 個路口、$m \le 2 \times 10^5$ 條單向道路，各有通行時間，求消
+防隊到每個路口最快要多久。
+\item $n \le 15$ 個景點，給定兩兩之間的交通時間，從飯店出發每個景點去一次再回飯
+店，最短要多久。
+\item 求 $1$ 到 $N$ 之中，各位數字和是 $7$ 的倍數的整數有幾個，$N \le 10^{18}$。
+\item $n \le 300$ 堆石頭排成一列，每次合併相鄰兩堆，花費是兩堆的總和，合成一堆的
+最小花費。
+\item 公司的組織圖是一棵樹，每人有一個開心值，直屬上司和下屬不能同時參加聚餐，
+參加的人開心值總和最大。
+\item $n \le 2 \times 10^5$ 件工作和它們的先後關係，每件要花一些天，沒有先後關
+係的可以同時做，最早第幾天全部做完。
+\item $n \le 10^5$ 座小島、$m \le 2 \times 10^5$ 座可以蓋的橋各有造價，要讓所有
+小島互通的最小總造價。
+\item 兩份長度 $5000$ 的打卡紀錄，找出兩份共有、順序相同的最長一串。
+\end{enumerate}
+
+\item 下面每一題都有一個看起來很像的線索。 說明照線索直接套為什麼不對，以及應
+該怎麼做。
+\begin{enumerate}
+\item 從 $1$ 號站坐到 $n$ 號站，路上最貴的那一段票價要盡量便宜。 （線索：從某處
+到某處、最小。）
+\item 颱風過後，鄉公所只能先搶修 $n - 1$ 條道路，條件是每個村子到鄉公所的最短
+距離都要和道路全通時一樣。 要修哪幾條？ （線索：選 $n - 1$ 條邊、連通。）
+\item $n \le 2 \times 10^5$ 個不超過 $10^9$ 的正整數，挑一些出來，總和是 $3$ 的
+倍數，總和最大是多少。 （線索：挑一些、總和。）
+\item 一張有向圖，從 $s$ 出發可以重複走，每個點的分數只在第一次到達時拿到，最多
+拿幾分。 （線索：有向圖上的最大值。）
+\end{enumerate}
+
+\item 照例題一的程式，寫出下面這組輸入每一群的 $(a, b)$、每處理完一群之後的
+\texttt{ways}，以及輸出。
+\begin{code}{text}{練習 3 的輸入}
+5 3
+1 2
+1 3
+4 5
+\end{code}
+
+\item 例題二的延伸。
+\begin{enumerate}
+\item 把規則倒過來：先讓總長度最短，總長度一樣時再讓最陡坡度最小。 這時「一次
+Dijkstra，標籤是（總長度，最陡坡度），依序比較」對不對？ 說明理由。
+\item 第一步不用並查集：把所有不同的坡度排好，對 $G$ 二分搜，每次用 BFS 檢查只
+走坡度 $\le G$ 的步道能不能從 $s$ 到 $t$。 這樣的複雜度是多少？
+\end{enumerate}
+
+\item 例題三的延伸。
+\begin{enumerate}
+\item 題目改成逛完最後一攤就從那裡離開，不必回正門。 程式要改哪裡？
+\item 如果只有一位新生（$q = 1$），還需要排序和前綴最大值嗎？
+\end{enumerate}
+
+\item 估計。
+\begin{enumerate}
+\item 例題一的 $m = 0$、$n = 5000$ 時，背包的內層迴圈一共跑幾次？ 如果
+\texttt{x} 每次都從 $0$ 跑到 $n$ 呢？
+\item 例題三如果 $n = 20$，\texttt{dp} 表要多少記憶體、多少次轉移？ 還來得及嗎？
+\end{enumerate}
+\end{drills}
+
+\section{總題單}
+\label{sec:cap-practice}
+
+下面是 Aki-Judge 上的題目，從本書各章挑出來，另外加了幾題沒有出現在前面題單裡的。
+順序是打亂的，也不標章節：每一題先照第~\ref{sec:cap-questions}~節的問題判斷要用
+什麼方法，寫完再看本章最後的解答，那裡只寫用到的技巧和對應的章。 前面已經寫過的
+題目，這次從判斷開始重做一次。
+
+\begin{center}
+\begin{tabular}{rlc}
+\toprule
+ & 題目 & 難度 \\
+\midrule
+1 & \akiref{campus-fiber-upgrade}{校園光纖補線} & 實戰 \\
+2 & \akiref{multiples-both-ways}{正讀倒讀都是 K 的倍數} & 實戰 \\
+3 & \akiref{the-3d-printer-that-needs-to-cool-down}{需要冷卻的 3D 印表機} & 基本 \\
+4 & \akiref{the-robot-that-never-stops}{不停站的導覽機器人} & 實戰 \\
+5 & \akiref{squared-scores-for-palindromic-pieces}{回文切段的平方得分} & 實戰 \\
+6 & \akiref{one-errand-on-the-way-home}{放學順路買東西} & 基本 \\
+7 & \akiref{pruning-budget}{修剪預算} & 挑戰 \\
+8 & \akiref{how-light-can-the-heaviest-box-be}{最重那箱可以多輕} & 實戰 \\
+9 & \akiref{threshold-skill-tree}{門檻式技能樹} & 實戰 \\
+10 & \akiref{drone-payload-balance}{無人機載重配貨} & 基本 \\
+11 & \akiref{power-lines-for-typhoon-season}{颱風季的電線規劃} & 實戰 \\
+12 & \akiref{songs-that-might-be-kept}{哪些歌曲可能被保留} & 實戰 \\
+13 & \akiref{errands-before-school-starts}{開學前的採買路線} & 挑戰 \\
+14 & \akiref{the-descending-token}{往下走的棋子} & 基本 \\
+15 & \akiref{rehearsal-start-windows}{校慶彩排的可排時段} & 實戰 \\
+16 & \akiref{how-far-the-digit-stickers-go}{數字貼紙夠貼到幾號} & 實戰 \\
+17 & \akiref{piggy-bank-range-totals}{存錢筒的區間總額} & 實戰 \\
+18 & \akiref{rivals-and-partners-in-the-tug-of-war}{有恩怨也有搭檔的分組} & 挑戰 \\
+19 & \akiref{orienteering-passphrase}{定向越野的通關密語} & 實戰 \\
+20 & \akiref{ten-minutes-flat}{一律十分鐘的接駁車} & 實戰 \\
+21 & \akiref{how-late-can-you-arrive}{最晚幾點到夜市} & 挑戰 \\
+22 & \akiref{non-adjacent-water-stations}{不相鄰的補水站} & 實戰 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+本章的三題例題也在 Aki-Judge 上。 讀完題意之後先蓋住後面，自己走一次判斷，再和
+書上的過程對照。 第 18 題和例題一是同一種組合，可以接著寫。
+
+\section{讀完你應該會}
+\label{sec:cap-checklist}
+
+\begin{itemize}
+\item 拿到一題陌生的題目，能從資料範圍和題目問法，在本書十章裡列出兩三個候選，並
+說出每個候選需要的前提（固定的重量、權重非負、沒有環、相鄰才有限制等），逐一確認。
+\item 寫一條貪心規則之前，會先用小例子找反例；找到反例時，能說出眼前的選擇影響了
+後面的什麼，並把它寫成動態規劃的狀態。
+\item 能用一句話寫出「之後還能怎麼做只取決於什麼」，對照狀態表選出狀態，並估計狀態
+數、轉移數和記憶體。
+\item 看到「最弱的一環」「全部連起來」「可以等待」「不等式」這類說法，能認出背後的
+瓶頸路徑、生成樹或最短路徑。
+\item 題目有兩個標準或兩個階段時，能拆成先後兩步，各用一章的方法，並在中間印出結
+果檢查。
+\end{itemize}
+
+\textbf{延伸閱讀}（書末會整理完整的參考資料）
+
+\begin{itemize}
+\item Steven S. Skiena，\textit{The Algorithm Design Manual}，第 3 版，8.7 節
+「Design Graphs, Not Algorithms」：作者的看法是，很多題目的關鍵在把圖建對，而不
+是發明新的演算法；可以和本章的例題一、例題二對照。
+\item Steven Halim 等，\textit{Competitive Programming 4}，Book 2，8.7 節「Problem
+Decomposition」：把需要兩種技巧的題目依組合方式分類，例如「對答案二分搜加上別
+的」「圖的前處理加上動態規劃」。
+\item Thomas H. Cormen 等，\textit{Introduction to Algorithms}，第 4 版，14.3 節和
+15.2 節：分別整理動態規劃和貪心各需要什麼性質，可以用來檢查第~\ref{sec:cap-decide}
+~小節的判斷順序。
+\end{itemize}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item
+\begin{enumerate}
+\item Dijkstra，$O((n + m) \log n)$。 第~8~章。
+\item 旅行推銷員的位元 DP，狀態是「去過哪些、現在在哪」，$O(2^n n^2)$，
+$2^{15} \times 225 \approx 7 \times 10^6$。 第~4~章 4.3 節。
+\item 數位 DP，狀態是「第幾位、是否貼著上界、目前數字和除以 $7$ 的餘數」。 第~5~章。
+\item 區間 DP，看最後一次合併的分界，$O(n^3) = 2.7 \times 10^7$。 第~3~章。
+\item 樹形 DP，每個人記「參加」「不參加」兩個狀態。 第~10~章 10.2 節。
+\item 照拓樸順序算每件工作最早的完成日，也就是 DAG 上的最長路（關鍵路徑），
+$O(n + m)$。 第~6~章 6.4 節。
+\item 最小生成樹，Kruskal，$O(m \log m)$。 第~9~章。
+\item 最長共同子序列，$O(nm) = 2.5 \times 10^7$。 第~2~章 2.3 節。
+\end{enumerate}
+
+\item
+\begin{enumerate}
+\item 最短路徑把票價加起來，這裡只看最貴的一段，是瓶頸路徑。 依票價由小到大加
+邊，用並查集看 $1$ 和 $n$ 什麼時候連通（第~9~章 9.7 節）。 也可以用 Dijkstra，
+把「加起來」換成「取最大值」：取最大值不會讓路變得更好，Dijkstra 的論證仍然成立。
+\item 「選 $n - 1$ 條邊、連通」像最小生成樹，但最小生成樹只讓總長最小，不保證每
+個村子到鄉公所最近。 要的是從鄉公所出發的最短路徑樹：做一次 Dijkstra，每個村子
+留下最短路上的前一條邊（第~9~章 9.1 節、第~8~章 8.2 節）。
+\item 「挑一些、總和」像背包，但總和可以到 $2 \times 10^{14}$，容量開不出來。 判斷只需要總和除以 $3$ 的餘數，狀態改成「前 $i$ 個數、總和除以 $3$
+餘幾」的最大總和，只有 $3$ 種，$O(n)$（第~1~章 1.7 節「容量太大」的想法）。
+\item 「有向圖上的最大值」像第~6~章 DAG 上的 DP，但這張圖可能有環，排不出拓樸順序。
+同一個環上的點，走到一個就能全部走到，要先把互相走得到的點合併成一個點，變成 DAG
+再做（第~6~章 6.4 節最後一小節；合併的方法叫強連通元件，在《C++ 演算法解題 3》）。
+\end{enumerate}
+
+\item BFS 從 1 開始，1 是顏色 $0$，2、3 是顏色 $1$，第一群是 $(1, 2)$；4 是顏色 $0$、
+5 是顏色 $1$，第二群是 $(1, 1)$。
+\begin{center}
+\begin{tabular}{lcccccc}
+\toprule
+處理完 & $x = 0$ & $1$ & $2$ & $3$ & $4$ & $5$ \\
+\midrule
+還沒開始 & 1 & & & & & \\
+第一群 $(1, 2)$ & & 1 & 1 & & & \\
+第二群 $(1, 1)$ & & & 2 & 2 & & \\
+\bottomrule
+\end{tabular}
+\end{center}
+第二群兩色一樣多，每一格都加了兩次。 $n = 5$，$x = 2$ 和 $x = 3$ 的差都是 $1$，
+輸出 \texttt{1 4}。
+
+\item
+\begin{enumerate}
+\item 對。 設到某個點有兩種走法，標籤 $(L_1, G_1)$ 比 $(L_2, G_2)$ 好，接上同一
+條長度 $l$、坡度 $g$ 的步道。 如果 $L_1 < L_2$，接上之後仍然 $L_1 + l < L_2 + l$；
+如果 $L_1 = L_2$、$G_1 \le G_2$，接上之後長度相同，而
+$\max(G_1, g) \le \max(G_2, g)$。 比較好的接上之後仍然不比較差，而且每走一步長度至
+少加 $1$，標籤只會變大，第~8~章 8.2 節的論證可以照用。 原本的順序不行，是因為取最
+大值可能把第一個數變成相同，這時第二個數的順序可以和原本相反。
+\item 不同的坡度最多 $m$ 種，二分搜約 $\log_2 m \approx 18$ 次，每次 BFS 是
+$O(n + m)$，加上排序，共 $O(m \log m + (n + m) \log m)$，和並查集的做法一樣來得及。
+\end{enumerate}
+
+\item
+\begin{enumerate}
+\item 算 \texttt{plan} 時不加回程：\texttt{best} 改成
+\texttt{dp[mask][last]} 的最小值。 其他都不用改。
+\item 不需要。 只問一次時，把 $2^n$ 個集合掃一遍，在時間 $\le T$ 的集合裡取最高
+分，$O(2^n)$，比排序還快。 排序和前綴最大值是為了讓很多次詢問共用同一份整理好的
+資料。
+\end{enumerate}
+
+\item
+\begin{enumerate}
+\item $m = 0$ 時每組自己一群，共 $5000$ 群，處理第 $k$ 群時 \texttt{total} 是
+$k - 1$，迴圈跑 $k$ 次，總共 $1 + 2 + \cdots + 5000 \approx 1.25 \times 10^7$ 次。
+每次都從 $0$ 跑到 $n$ 的話是 $5000 \times 5001 \approx 2.5 \times 10^7$ 次，多一
+倍，不過也還來得及。
+\item $2^{20} \times 20 \approx 2.1 \times 10^7$ 格，每格 $8$ 位元組約 $168$ MB，
+改用 \texttt{int}（最大時間 $21 \times 10^6$ 放得下）是 $84$ MB。 轉移是
+$2^{20} \times 20 \times 20 \approx 4.2 \times 10^8$ 次，在 $1$ 秒內很勉強。 這
+也是第~4~章把「$n$ 不超過 $20$ 左右」當成位元 DP 訊號的原因。
+\end{enumerate}
+\end{enumerate}
+
+\subsection*{總題單的解答}
+
+只寫用到的技巧和對應的章。 有些題不只一種做法，這裡寫的是其中一種。
+
+\begin{enumerate}
+\item 舊光纖先用並查集合併；新光纖依造價排序做一次 Kruskal，記下每接受一條之後
+的累計造價；每個預算用二分搜找最多能接受幾條（第~7、9~章，第 1 本第~3~章）。
+\item 數位 DP，狀態同時記「$x$ 除以 $K$ 的餘數」和「倒過來的數除以 $K$ 的餘數」，
+位數固定時，第幾位在倒過來的數裡乘上 $10$ 的幾次方是確定的（第~5~章）。
+\item 冷卻時間併進結束時刻，每個委託佔用 $[s_i, t_i + r_i)$，變成有價值的區間排
+程；依結束時刻排序，用二分搜找前面接得上的（第 1 本第~9~章 9.7 節）。 依結束時刻
+貪心會錯，因為酬勞不同。
+\item 每個站拆成「走了偶數步」「走了奇數步」兩個狀態做 BFS；第 $k$ 分鐘能在 $v$，
+當且僅當和 $k$ 同奇偶的最短步數不超過 $k$，因為可以來回走一條步道多花 $2$ 分鐘（第
+~7~章 7.4 節的奇偶想法，第 1 本第~12~章的狀態 BFS）。 站 $s$ 沒有步道時要另外處理。
+\item 先用區間的方法算出每一段是不是回文（第~3~章 3.4 節），再做「把前 $i$ 顆切
+成好幾段」的一維 DP（第 1 本第~9~章）。
+\item 從學校在原圖上、從家在反向圖上各做一次 Dijkstra，每種商品取所有賣它的地點
+$v$ 的 $d_s(v) + d_t(v)$ 最小值（第~8~章 8.5 節）。
+\item 剪掉一個點就是剪掉整棵子樹。 用 DFS 的前序把每棵子樹排成連續的一段，在前序
+上做背包：留下這個點就看下一個位置，剪掉就跳過整段子樹（第~10~章、第~1~章）。
+\item 箱子由輕到重一箱一箱加進 0/1 背包的可達表，記下每個總重第一次變成湊得出來
+時，加的是哪一箱；那一箱就是最輕可能的「最重那箱」。 詢問直接查表（第~1~章 1.5
+節）。
+\item 把 Kahn 演算法的「入度變成 $0$」換成「學會的相關技能數達到門檻」，一天處理
+一層（第~6~章 6.2 節）。
+\item 「剛好裝滿」的 0/1 背包，算出每個總重的最高運費，在 $L$ 到 $W$ 之間取最大值
+（第~1~章 1.3 節）。
+\item 和例題二同一種拆法：先依風險做 Kruskal，找出最小的最高風險 $B$；再只用風險
+$\le B$ 的電線，依造價做一次 Kruskal（第~9~章）。
+\item 正著、倒著各做一次最長共同子序列；位置 $i$ 和 $j$ 的代號相同，而且前面一段
+加上後面一段再加 $1$ 等於最長長度時，這兩個位置可能被用到（第~2~章，和第 1 本第
+~14~章例題二「從兩端各算一次」同一類想法）。
+\item 從家和每一家店各做一次 Dijkstra，得到店與店之間的最短距離；再做位元 DP，狀
+態是「辦好了哪幾種事、現在在哪一家店」，轉移時檢查先後條件（第~8~章、第~4~章）。
+\item 由下往上算，依深度的奇偶決定這一步是誰走，取子節點的最大值或最小值（第~10~
+章）。
+\item 差分約束：每條要求變成一條帶權重的邊，用 Bellman--Ford 從下限往上推、從上
+限往下壓，各做一次；做完還在變就是不可行（第~8~章 8.7 節）。
+\item 對貼好的號碼數二分搜；檢查時一位一位算出 $S$ 到 $S + k - 1$ 每個數字各用了
+幾張（第~5~章，第 1 本第~3~章）。
+\item 每天的金額只由前一天決定，是函數圖上的一條路。 找出尾巴和圈，配上前綴和回
+答區間總和（第~7~章 7.5 節，第 1 本第~5~章）。
+\item 搭檔和恩怨用二著色（或第~7~章預告的帶權並查集）分成好幾群，每群只能整群選
+一邊。 問題變成子集合和，相同大小的群合併成多重背包做二進位拆分，可達性用
+\texttt{bitset} 一次處理一整排（第~7~章、第~1~章 1.6 節）。
+\item 狀態是「蓋到第 $k$ 個章、人在哪個檢查點」。 $k$ 每一步加一，就算路線圖有
+環，狀態圖也是一層一層的 DAG，逐層推（第~6~章 6.4 節，第~8~章 8.6 節）。
+\item 每條接駁車路線加一個虛擬點：站點走到虛擬點的權重是 $r_{j,x} + c_j$，虛擬點
+回到站點是 $r_{j,y}$，再做 Dijkstra（第~8~章）。 直接在停靠站之間兩兩連邊會太多。
+\item 已經買過的攤位一定是連續的一段，狀態是「買過哪一段、站在左端還是右端」，從
+整段往回推「最晚可以站在那裡的時刻」（第~3~章）。
+\item 樹形 DP，每個點記三種狀態：自己設站；沒設站但被某個子節點蓋到；沒設站，要
+靠父節點（第~10~章 10.2 節）。
+\end{enumerate}
