@@ -6,9 +6,9 @@
 
 這本書分兩條線：動態規劃（背包、子序列、區間、位元、數位、樹形）和圖論（DAG 與拓樸排序、並查集、加權最短路徑、最小生成樹），最後一章是綜合練習。 寫法和第 1 本一樣，例題照「題意、想法、程式、複雜度、常見錯誤」的順序寫，動態規劃要說明狀態的意義。 章末有觀念題（附解答）和 Aki-Judge 上的實作題單（只列題名，不附解答）。
 
-- 全書 PDF（草稿，目前 10 章，281 頁）：[`output/book.pdf`](output/book.pdf)
+- 全書 PDF（草稿，11 章）：[`output/book.pdf`](output/book.pdf)
 - 網頁版：[annotated.codes/learn/algorithms-2](https://annotated.codes/learn/algorithms-2)（一節一頁，手機也好讀）
-- 各章 PDF：[1](output/chapters/01_Knapsack.pdf)、[2](output/chapters/02_SubsequenceDP.pdf)、[3](output/chapters/03_IntervalDP.pdf)、[4](output/chapters/04_BitmaskDP.pdf)、[5](output/chapters/05_DigitDP.pdf)、[6](output/chapters/06_DAGTopo.pdf)、[7](output/chapters/07_DSUCyclesBipartite.pdf)、[8](output/chapters/08_ShortestPaths.pdf)、[9](output/chapters/09_MST.pdf)、[10](output/chapters/10_TreeDP.pdf)
+- 各章 PDF：[1](output/chapters/01_Knapsack.pdf)、[2](output/chapters/02_SubsequenceDP.pdf)、[3](output/chapters/03_IntervalDP.pdf)、[4](output/chapters/04_BitmaskDP.pdf)、[5](output/chapters/05_DigitDP.pdf)、[6](output/chapters/06_DAGTopo.pdf)、[7](output/chapters/07_DSUCyclesBipartite.pdf)、[8](output/chapters/08_ShortestPaths.pdf)、[9](output/chapters/09_MST.pdf)、[10](output/chapters/10_TreeDP.pdf)、[11](output/chapters/11_Capstone.pdf)
 - 原始碼：`src/`（XeLaTeX）
 
 ## 章節
@@ -27,7 +27,7 @@
 | 8 | 加權圖的最短路徑 | 草稿 |
 | 9 | 最小生成樹 | 草稿 |
 | 10 | 樹形 DP | 草稿 |
-| 11 | 綜合練習 | 撰寫中 |
+| 11 | 綜合練習 | 草稿 |
 
 第 1、2、3、6、7、10 章原本是第 1 本的第 15–20 章，拆書時搬到這裡。
 
@@ -36,7 +36,7 @@
 | # | 書名 | 狀態 |
 |---|---|---|
 | 1 | 《C++ 演算法解題 1：APCS 實作題核心》 | 草稿，[cpp-algorithms-book](https://github.com/AkizumiFox/cpp-algorithms-book) |
-| 2 | 《C++ 演算法解題 2：動態規劃與圖論》 | 本書，撰寫中 |
+| 2 | 《C++ 演算法解題 2：動態規劃與圖論》 | 本書，草稿（11 章寫完） |
 | 3 | 《C++ 演算法解題 3：進階資料結構、數學與競賽》 | 規劃中 |
 | 4 | 《資料結構與演算法：C 語言、虛擬碼與研究所考試》 | 規劃中 |
 
