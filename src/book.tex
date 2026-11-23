@@ -45,6 +45,9 @@
 \usepackage{titlesec}
 \titleformat{\chapter}{\normalfont\huge\bfseries}{第~\thechapter~章}{1em}{}
 \titlespacing*{\chapter}{0pt}{-20pt}{20pt}
+% 頁首與目錄標題中文化（預設是 CHAPTER 1. 和 CONTENTS）
+\renewcommand{\contentsname}{目錄}
+\renewcommand{\chaptermark}[1]{\markboth{第~\thechapter~章\quad #1}{}}
 
 % 行內程式碼（\texttt）不能斷行，段落裡出現較長的識別字時容易凸出右邊界；
 % 允許 TeX 多拉開一點字距來排版。
