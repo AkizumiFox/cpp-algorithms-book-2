@@ -40,8 +40,8 @@ DP}（bitmask DP），也常被叫做狀態壓縮 DP。
 到 $2^n \cdot n$。 第~\ref{sec:bm-tsp}~節是最有名的位元 DP：從家出發，每個地
 方去一次再回家，怎麼走最短，也就是\textbf{旅行推銷員問題}（traveling salesman
 problem，常簡稱 TSP），這時還要記「現在停在哪裡」。 第~\ref{sec:bm-submask}
-~節列舉子集合的子集合，第~\ref{sec:bm-tiling}~節一列一列鋪地磚，中間也會算
-清楚這種表格要多少記憶體。
+~節列舉子集合的子集合，第~\ref{sec:bm-sos}~節對每個集合加總它所有子集合的值，
+第~\ref{sec:bm-tiling}~節一列一列鋪地磚，中間也會算清楚這種表格要多少記憶體。
 
 動態規劃的四件事（狀態、轉移、初始值、計算順序）和往前推、往回拉兩種寫法，
 第 1 本第~9~章都講過；第 1 本第~4~章 4.2 節講過位元遮罩，第~\ref{sec:bm-set}
@@ -258,6 +258,7 @@ $2^n$ 仍然是指數，只是長得比 $n!$ 慢很多。 所以位元 DP 只能
 間、距離、詢問數）卻很大。 這時多半是要把那十幾個東西的「有或沒有」當成狀態。
 後面兩欄是本章另外兩種轉移的量：旅行推銷員每個狀態要多看一層「停在哪裡」，是
 $2^n \cdot n^2$；第~\ref{sec:bm-submask}~節列舉子集合的子集合，是 $3^n$。
+第~\ref{sec:bm-sos}~節的子集合加總也是 $2^n \cdot n$。
 
 \section{例題：成果發表會的出場順序}
 \label{sec:ex-bm-show}
@@ -336,21 +337,21 @@ using namespace std;
 int main() {
     int n, m;
     cin >> n >> m;
-    vector<vector<int>> a(n, vector<int>(n));    // a[i][s]：節目 i 排在第 s 個時段
+    vector<vector<int>> a(n, vector<int>(n));    // a[節目][時段]
     for (int i = 0; i < n; i++) {
         for (int s = 0; s < n; s++) {
             cin >> a[i][s];
         }
     }
-    vector<int> need(n, 0);                       // need[v]：必須比 v 早的節目
+    vector<int> need(n, 0);                       // 要比 v 早的節目
     for (int k = 0; k < m; k++) {
         int u, v;
         cin >> u >> v;
         need[v - 1] |= 1 << (u - 1);
     }
     int full = (1 << n) - 1;
-    // dp[mask]：mask 裡的節目剛好排滿前 popcount(mask) 個時段的最大總評分
-    // -1 表示這個集合不可能是「前幾個時段」排的節目
+    // dp[mask]：mask 裡的節目剛好排滿前 popcount(mask) 個時段的
+    // 最大總評分；-1 表示這個集合不可能是「前幾個時段」排的節目
     vector<int> dp(1 << n, -1);
     dp[0] = 0;
     for (int mask = 0; mask < full; mask++) {
@@ -363,7 +364,7 @@ int main() {
                 continue;                         // v 已經排過了
             }
             if ((need[v] & mask) != need[v]) {
-                continue;                         // v 的前置還沒全部排好
+                continue;                         // 前置還沒全部排好
             }
             int next = mask | (1 << v);
             dp[next] = max(dp[next], dp[mask] + a[v][slot]);
@@ -399,7 +400,7 @@ int main() {
 \textbf{複雜度}
 
 $2^n$ 個狀態，每個試 $n$ 個節目，$n = 16$ 時約 $10^6$ 次。 表格是 $2^{16}$
-個 \texttt{int}，$256$ KB。 最大的測試資料在本書測試的環境下約 $0.01$ 秒。
+個 \texttt{int}，$256$ KB。 最慢的一筆測試資料在本書測試的環境下不到 $0.01$ 秒。
 
 \subsection{常見錯誤}
 
@@ -499,7 +500,7 @@ $\{1, 2, 3\}$、停在五金行：
 家不放進集合裡：它是固定的起點，集合只記 $n$ 個要去的地方。 計算順序和上一節
 一樣，$S \cup \{j\}$ 比 $S$ 大，\texttt{mask} 由小到大就對。 這個做法叫
 \textbf{Held–Karp 演算法}，1962 年提出。 旅行推銷員問題到現在都沒有人找到多
-項式時間的解法，$2^n \cdot n^2$ 已經是實用上很好的精確解。
+項式時間的解法；$2^n \cdot n^2$ 仍然是指數，但比試遍 $n!$ 種順序快得多。
 
 \subsection{填表}
 \label{sec:bm-tsp-table}
@@ -557,7 +558,7 @@ $\mathit{from}$ 往回走：知道現在在 $j$、前一站是 $i$，就把 $j$ 
 using namespace std;
 
 int main() {
-    int n;                                        // 地點 0 是家，1 到 n 是要去的地方
+    int n;                                        // 地點 0 是家
     cin >> n;
     vector<vector<int>> d(n + 1, vector<int>(n + 1));
     for (auto &row : d) {
@@ -568,8 +569,9 @@ int main() {
     const int INF = INT_MAX / 2;
     int full = (1 << n) - 1;
     // 第 i 位代表地點 i + 1
-    // dp[mask][last]：從家出發、去過的地方剛好是 mask、停在 last 的最短路程
-    // from[mask][last]：達到這個最短路程時，前一站是哪裡（-1 表示前一站是家）
+    // dp[mask][last]：從家出發、去過的地方剛好是 mask、停在 last 時
+    // 的最短路程；from[mask][last]：取到這個最短路程時的前一站，
+    // -1 表示前一站是家
     vector<vector<int>> dp(1 << n, vector<int>(n, INF));
     vector<vector<int>> from(1 << n, vector<int>(n, -1));
     for (int i = 0; i < n; i++) {
@@ -607,7 +609,7 @@ int main() {
     while (cur != -1) {
         route.push_back(cur + 1);
         int prev = from[mask][cur];
-        mask ^= 1 << cur;                         // 拿掉 cur，回到前一個狀態
+        mask ^= 1 << cur;                         // 拿掉 cur
         cur = prev;
     }
     reverse(route.begin(), route.end());
@@ -692,10 +694,10 @@ $64$ MB，這種表格寫下去之前一定要先算。 下表是 $n = 20$ 的�
 \toprule
 表格的寫法 & 記憶體 & 時間 \\
 \midrule
-全域陣列 \texttt{int dp[1 << 20][20]} & $84$ MB & 約 $0.2$ 秒 \\
-\texttt{vector<vector<int>> dp(1 << n, vector<int>(n))} & $123$ MB & 約 $0.2$ 秒 \\
-\texttt{vector<vector<int>> dp(n, vector<int>(1 << n))} & $87$ MB & 約 $0.2$ 秒 \\
-全域陣列 \texttt{long long dp[1 << 20][20]} & $164$ MB & 約 $0.2$ 秒 \\
+全域陣列 \texttt{int dp[1 << 20][20]} & $84$ MB & 約 $0.19$ 秒 \\
+\texttt{vector<vector<int>> dp(1 << n, vector<int>(n))} & $123$ MB & 約 $0.22$ 秒 \\
+\texttt{vector<vector<int>> dp(n, vector<int>(1 << n))} & $87$ MB & 約 $0.26$ 秒 \\
+全域陣列 \texttt{long long dp[1 << 20][20]} & $164$ MB & 約 $0.21$ 秒 \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -713,11 +715,12 @@ $\mathrm{dp}(S, i)$ 的寫法相同。
 \end{itemize}
 
 \begin{apcsnote}
-題目會寫出記憶體限制。 寫位元 DP 之前，先算「狀態數 $\times$ 每格位元組數」：
+寫位元 DP 之前，先算「狀態數 $\times$ 每格位元組數」：
 $2^{16} \times 16$ 個 \texttt{long long} 只要 $8$ MB，$2^{20} \times 20$ 個
-\texttt{int} 就是 $80$ MB。 如果題目把測試資料分成幾個子題，$n \le 8$ 的子題
-可以先用 \texttt{next\_permutation} 試遍所有順序拿下來，這個暴力解之後也能和
-位元 DP 對拍。
+\texttt{int} 就是 $80$ MB。 題目有寫記憶體限制時，以題目寫的為準。 官方的範
+例題本把測試資料分成幾個子題組（第 1 本 14.8 節）；$n \le 8$ 的子題組可以先用
+\texttt{next\_permutation} 試遍所有順序拿下來，這個暴力解之後也能和位元 DP 對
+拍。
 \end{apcsnote}
 
 \subsection{常見錯誤}
@@ -769,8 +772,8 @@ $0 \to 3 \to 1 \to 2 \to 0$ 走：$5 \times 2 + 3 \times (2 + 2) + 2 \times (2 +
 \textbf{想法}
 
 最直接的是試 $n!$ 種順序，$16!$ 太多。 幾條直覺的規則都會錯：每次走最近的班
-級（$0 \to 2 \to 1 \to 3 \to 0$）總共 $70$；袋子由輕到重收，把最重的留到最後，
-在題目的範例 2 也不是最好的。 最好的走法常常是趁車子還輕時先走遠路，但「遠」
+級（$0 \to 2 \to 1 \to 3 \to 0$）總共 $70$；袋子由輕到重收，把最重的留到最後
+（$0 \to 2 \to 3 \to 1 \to 0$），總共 $65$，也不是最好的。 最好的走法常常是趁車子還輕時先走遠路，但「遠」
 和「重」要一起權衡，沒有簡單的規則。
 
 \textbf{這題看起來不像上一節。} 一段路的費力值會乘上當時的重量，而重量看起來
@@ -839,18 +842,18 @@ int main() {
     // load[mask]：收過 mask 這些班級之後，車上回收袋的總重
     vector<long long> load(1 << n, 0);
     for (int mask = 1; mask <= full; mask++) {
-        int low = __builtin_ctz(mask);                    // 最低的 1 是第幾位
+        int low = __builtin_ctz(mask);            // 最低的 1 是第幾
         load[mask] = load[mask & (mask - 1)] + w[low];
     }
     const long long INF = LLONG_MAX / 2;
-    // dp[mask][last]：收過的班級剛好是 mask、人停在班級 last 的最小費力值
+    // dp[mask][last]：收過的班級剛好是 mask、停在 last 的最小費力值
     // 班級在程式裡編號 0 到 n - 1，地點編號是班級編號加 1
     vector<vector<long long>> dp(1 << n, vector<long long>(n, INF));
     for (int i = 0; i < n; i++) {
-        dp[1 << i][i] = d[0][i + 1] * c;                  // 第一段車上還沒有袋子
+        dp[1 << i][i] = d[0][i + 1] * c;          // 第一段沒有袋子
     }
     for (int mask = 1; mask <= full; mask++) {
-        long long weight = c + load[mask];                // 離開 last 時車子的重量
+        long long weight = c + load[mask];        // 離開時的車重
         for (int last = 0; last < n; last++) {
             if (dp[mask][last] == INF) {
                 continue;
@@ -859,15 +862,17 @@ int main() {
                 if ((mask >> j) & 1) {
                     continue;
                 }
-                long long cost = dp[mask][last] + d[last + 1][j + 1] * weight;
+                long long cost =
+                    dp[mask][last] + d[last + 1][j + 1] * weight;
                 long long &target = dp[mask | (1 << j)][j];
                 target = min(target, cost);
             }
         }
     }
     long long ans = INF;
-    for (int last = 0; last < n; last++) {                // 最後回到回收站，車上全滿
-        ans = min(ans, dp[full][last] + d[last + 1][0] * (c + load[full]));
+    for (int last = 0; last < n; last++) {        // 最後回到回收站
+        long long back = d[last + 1][0] * (c + load[full]);  // 全滿
+        ans = min(ans, dp[full][last] + back);
     }
     cout << ans << '\n';
     return 0;
@@ -900,7 +905,7 @@ int main() {
 
 $2^n \cdot n$ 個狀態，每個試 $n$ 個下一站，$O(2^n \cdot n^2)$，$n = 16$ 時約
 $1.7 \times 10^7$ 次。 表格 $2^{16} \times 16$ 個 \texttt{long long} 是
-$8$ MB。 最大的測試資料在本書測試的環境下約 $0.02$ 秒。
+$8$ MB。 最慢的一筆測試資料在本書測試的環境下約 $0.02$ 秒。
 
 \subsection{常見錯誤}
 
@@ -1060,7 +1065,7 @@ using namespace std;
 int main() {
     int n, k;
     cin >> n >> k;
-    vector<int> gear(n, 0);                     // gear[i]：第 i 位同學的器材，k 位元
+    vector<int> gear(n, 0);                     // 第 i 位同學的器材
     for (int i = 0; i < n; i++) {
         string s;
         cin >> s;
@@ -1079,7 +1084,7 @@ int main() {
     // dp[S]：只用 S 裡的同學，最多能組成幾個合格的小組
     vector<int> dp(1 << n, 0);
     for (int S = 1; S <= everyone; S++) {
-        int p = S & -S;                         // 編號最小的同學（只有他那一位是 1）
+        int p = S & -S;                         // 只留編號最小的那位
         int others = S ^ p;
         int best = dp[others];                  // 他不參加
         // 他所在的小組 = p 加上 others 的子集合 sub
@@ -1121,7 +1126,7 @@ int main() {
 
 固定最低位之後，每個 $S$ 只列舉 $S \setminus \{p\}$ 的子集合，次數是
 $2^{|S| - 1}$。 全部加起來是 $(3^n - 1)/2$，$n = 16$ 時約
-$2.2 \times 10^7$，比不固定時少一半。 最大的測試資料在本書測試的環境下約
+$2.2 \times 10^7$，比不固定時少一半。 最慢的一筆測試資料在本書測試的環境下約
 $0.02$ 秒。
 
 \subsection{常見錯誤}
@@ -1140,6 +1145,336 @@ $0.02$ 秒。
 麥克風，沒辦法比較哪個比較好，只留一個就可能丟掉後來需要的那個。 這種做法在
 隨機的輸入上常常碰巧答對，所以更要小心。
 \end{itemize}
+
+\section{子集合加總}
+\label{sec:bm-sos}
+
+上一節的 $\mathrm{dp}(S)$ 要從 $S$ 的子集合裡挑一組最好的。 這一節的問題單純
+一點：每個集合 $T$ 先給一個數 $f(T)$，要對\textbf{每一個}集合 $S$ 算出
+\[
+g(S) = \sum_{T \subseteq S} f(T),
+\]
+也就是 $S$ 所有子集合的 $f$ 加起來。 這叫\textbf{子集合加總}（sum over
+subsets，常簡稱 SOS DP）。 它和第~1~章 1.5 節的子集合和是兩回事：那裡是挑一
+些數湊出指定的總和，這裡是把每個集合底下所有子集合的值加起來。
+
+先看一個情境。 水電行有 $n$ 種工具，每張維修單寫著需要哪幾種，每個工具包裝
+著哪幾種。 工具包裝著維修單要的每一種工具，就接得了這張單。 想知道每個工具
+包接得了幾張單：令 $f(T)$ 是「需要的工具剛好是 $T$」的維修單張數，裝著 $S$
+的工具包接得了的單，需要的工具都在 $S$ 裡，張數就是 $g(S)$。 本節最後的例題
+會把這題寫完。
+
+\subsection{\texorpdfstring{用上一節的迴圈：$3^n$}{用上一節的迴圈：3ⁿ}}
+
+最直接的做法是對每個 $S$ 用第~\ref{sec:bm-submask}~節的
+\texttt{sub = (sub - 1) \& S} 迴圈列舉它的子集合，把 $f$ 加起來。 照
+第~\ref{sec:bm-3n}~節的數法，總次數是 $3^n$。 $n = 16$ 時是
+$4.3 \times 10^7$，還可以；$n = 20$ 時是 $3.5 \times 10^9$，在本書測試的環境下
+光是這兩層迴圈就要約 $1.5$ 秒。 慢的原因是重複的工作：$g(\{0, 1, 2\})$ 和
+$g(\{0, 1\})$ 都把 $\{0, 1\}$ 底下的四個子集合各加了一次，前面算好的總和沒有
+拿來用。
+
+\subsection{一次放寬一位}
+\label{sec:bm-sos-bits}
+
+先看一個比較熟悉的例子。 第 1 本第~10~章 10.6 節的二維前綴和，用加加減減一
+次算完；另一種算法是先把每一列各自做一次一維前綴和，再把每一行各自做一次，
+結果相同。 一個集合可以看成 $n$ 個座標，每個座標只有 $0$、$1$ 兩種值；
+$T \subseteq S$ 就是每個座標上 $T$ 都不超過 $S$。 所以 $g$ 是一個 $n$ 維的前
+綴和，也可以一維一維做，每一維做一次。 子集合加總也因此常被叫做\textbf{高維
+前綴和}。
+
+寫成狀態。 下面把第 $0$ 到第 $i - 1$ 位叫做「前 $i$ 位」：
+
+\begin{center}
+\fbox{\parbox{0.86\linewidth}{\centering
+$h_i(S)$：$S$ 的子集合 $T$ 裡，和 $S$ 只在前 $i$ 位可能不同的那些，$f(T)$ 的總和。}}
+\end{center}
+
+換句話說，$T$ 是從 $S$ 拿掉零個或幾個「編號小於 $i$」的元素得到的。
+$h_0(S)$ 一位都不能動，只有 $T = S$，所以 $h_0(S) = f(S)$；$h_n(S)$ 每一位都
+能動，就是 $g(S)$。 以 $S = \{0, 1, 2\}$ 為例：
+
+\begin{center}
+\begin{tabular}{ccl}
+\toprule
+$i$ & 可以拿掉的元素 & 算進 $h_i(\{0, 1, 2\})$ 的 $T$ \\
+\midrule
+$0$ & 沒有 & $\{0, 1, 2\}$ \\
+$1$ & $0$ & $\{0, 1, 2\}$、$\{1, 2\}$ \\
+$2$ & $0$、$1$ & $\{0, 1, 2\}$、$\{1, 2\}$、$\{0, 2\}$、$\{2\}$ \\
+$3$ & $0$、$1$、$2$ & 全部 $8$ 個子集合 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{從 $h_i$ 到 $h_{i+1}$。} 多放寬第 $i$ 位，看 $S$ 有沒有 $i$：
+
+\begin{itemize}
+\item $S$ 沒有 $i$：它的子集合也不會有 $i$，第 $i$ 位本來就一樣，放寬了也沒有
+新的 $T$。 $h_{i+1}(S) = h_i(S)$。
+\item $S$ 有 $i$：$T$ 可以留著 $i$，這些已經在 $h_i(S)$ 裡；也可以沒有 $i$，這
+樣的 $T$ 是 $S \setminus \{i\}$ 的子集合，而且和 $S \setminus \{i\}$ 只在前 $i$
+位不同，加起來正好是 $h_i(S \setminus \{i\})$。 所以
+\[
+h_{i+1}(S) = h_i(S) + h_i(S \setminus \{i\}).
+\]
+\end{itemize}
+
+程式只用一個陣列，第 $i$ 輪把 $h_i$ 變成 $h_{i+1}$：
+
+\begin{code}{cpp}{子集合加總：一次放寬一位}
+// 一開始 g[S] = f[S]
+for (int i = 0; i < n; i++) {             // 第 i 輪：放寬第 i 位
+    for (int S = 0; S < (1 << n); S++) {
+        if ((S >> i) & 1) {
+            g[S] += g[S ^ (1 << i)];      // 加上沒有 i 的那一半
+        }
+    }
+}
+\end{code}
+
+\textbf{為什麼一個陣列就夠。} 第 $i$ 輪只改有 $i$ 的 $S$，讀的
+$S \setminus \{i\}$ 沒有 $i$，這一輪不會被改。 所以不管它排在 $S$ 前面還是後
+面，讀到的都是 $h_i$ 的值。 第~1~章的 0/1 背包要倒著填，是因為讀的格子可能
+已經被這一輪改過；這裡讀的和寫的不會是同一批格子，沒有這個問題。
+
+\textbf{計算順序。} 外層是位，內層是集合。 前幾節只要 \texttt{mask} 由小到大
+就對，這裡不行：兩層對調會重複計算，見本節的常見錯誤。
+
+用情境裡的 $6$ 張維修單走一次，它們需要的工具分別是 $\{0\}$、$\{0, 1\}$、
+$\{2\}$、$\{0, 2\}$、$\{0\}$、$\{1, 2\}$。 粗體是這一輪有做加法的格子：
+
+\begin{center}
+\begin{tabular}{cc|c|ccc}
+\toprule
+$S$ & \texttt{mask} & $f(S)$ & 第 $0$ 輪後 & 第 $1$ 輪後 & 第 $2$ 輪後 \\
+\midrule
+$\varnothing$ & \texttt{000} & 0 & 0 & 0 & 0 \\
+$\{0\}$ & \texttt{001} & 2 & \textbf{2} & 2 & 2 \\
+$\{1\}$ & \texttt{010} & 0 & 0 & \textbf{0} & 0 \\
+$\{0, 1\}$ & \texttt{011} & 1 & \textbf{1} & \textbf{3} & 3 \\
+$\{2\}$ & \texttt{100} & 1 & 1 & 1 & \textbf{1} \\
+$\{0, 2\}$ & \texttt{101} & 1 & \textbf{2} & 2 & \textbf{4} \\
+$\{1, 2\}$ & \texttt{110} & 1 & 1 & \textbf{2} & \textbf{2} \\
+$\{0, 1, 2\}$ & \texttt{111} & 0 & \textbf{1} & \textbf{3} & \textbf{6} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+最後一欄就是 $g$。 例如 $g(\{0, 2\}) = 4$：需要的工具都在 $\{0, 2\}$ 裡的維修
+單有 $\{0\}$、$\{0\}$、$\{2\}$、$\{0, 2\}$ 四張。 \texttt{111} 那一列的
+$0, 1, 3, 6$ 就是上面那張表的 $h_0$ 到 $h_3$：$h_1$ 多了 $f(\{1, 2\}) = 1$，
+$h_2$ 再多了 $f(\{0, 2\}) + f(\{2\}) = 2$。
+
+\textbf{複雜度。} $n$ 輪，每輪看 $2^n$ 個集合，$O(n \cdot 2^n)$。 $n = 20$
+時約 $2.1 \times 10^7$，比 $3^n$ 少了一百多倍。
+
+\subsection{為什麼每個子集合剛好算到一次}
+\label{sec:bm-sos-once}
+
+程式每一輪只是「有 $i$ 就加一次」，它對不對，要靠 $h_i$ 的意思來說明。 假設
+第 $i$ 輪開始時，每一格都符合定義：每個「$T \subseteq S$、和 $S$ 只在前 $i$
+位可能不同」的 $T$，在 $h_i(S)$ 裡都剛好算了一次。 $h_{i+1}(S)$ 要的 $T$ 多放
+寬了第 $i$ 位，把它們依第 $i$ 位分成兩堆：
+
+\begin{itemize}
+\item $T$ 的第 $i$ 位和 $S$ 一樣：$T$ 和 $S$ 只在前 $i$ 位不同，這一堆就是
+$h_i(S)$ 算的那些，每個一次。
+\item $T$ 的第 $i$ 位和 $S$ 不一樣：因為 $T \subseteq S$，只可能是 $S$ 有 $i$、
+$T$ 沒有。 這時 $T \subseteq S \setminus \{i\}$，而且兩者只在前 $i$ 位不同，
+這一堆就是 $h_i(S \setminus \{i\})$ 算的那些，每個一次。
+\end{itemize}
+
+兩堆用第 $i$ 位分開，不會重疊；每個 $T$ 的第 $i$ 位不是一樣就是不一樣，也不
+會漏掉。 所以 $h_{i+1}(S)$ 裡每個 $T$ 仍然剛好一次。 一開始 $h_0(S)$ 只有
+$T = S$ 自己，當然成立；做完 $n$ 輪，每一位都放寬了，就是 $g(S)$。
+
+換個角度看值怎麼流。 $f(T)$ 要加進 $g(S)$，$S$ 比 $T$ 多的每個元素都要補上
+一次，而第 $i$ 輪只能補 $i$。 所以 $f(T)$ 只有一條路：照編號由小到大，一輪
+補一個。 例如 $T = \{2\}$、$S = \{0, 1, 2\}$：第 $0$ 輪 $f(\{2\})$ 加進
+$\{0, 2\}$，第 $1$ 輪跟著 $\{0, 2\}$ 的值加進 $\{0, 1, 2\}$，第 $2$ 輪兩者都有
+$2$，不用動。 「先補 $1$ 再補 $0$」這條路不存在，因為補 $1$ 的時候，補 $0$
+的那一輪已經過了。 路只有一條，所以只算一次。
+
+\subsection{反過來：超集合的加總}
+\label{sec:bm-sos-super}
+
+有時候要的是另一個方向：
+\[
+G(S) = \sum_{T \supseteq S} f(T),
+\]
+把 $S$ 所有\textbf{超集合}（superset，包含 $S$ 的集合）的 $f$ 加起來。 情境
+裡反過來問「每張維修單有幾個工具包接得了」就是這個：令 $f(T)$ 是裝的工具剛好
+是 $T$ 的工具包個數，需要 $S$ 的維修單，接得了它的工具包裝的工具都包含 $S$，
+個數是 $G(S)$。
+
+做法照抄，只是方向相反。 狀態仍然是「只在前 $i$ 位可能不同」，只是 $T$ 這次
+可以多出 $S$ 沒有的元素。 第 $i$ 輪看 $S$ 有沒有 $i$：
+
+\begin{itemize}
+\item $S$ 有 $i$：它的超集合一定也有 $i$，放寬了也沒有新的 $T$，不用動。
+\item $S$ 沒有 $i$：$T$ 可以也沒有 $i$，這些已經算在裡面；也可以多一個 $i$，
+那些加起來正好是 $S \cup \{i\}$ 這一格現在的值。
+\end{itemize}
+
+程式和子集合加總只差一行：條件改成 \texttt{((S >> i) \& 1) == 0}，加的是
+\texttt{G[S | (1 << i)]}（例題的程式兩種都有）。 讀的 $S \cup \{i\}$ 有 $i$，
+這一輪不會被改，所以一樣只要一個陣列。 也可以用
+補集合換過去：$T \supseteq S$ 等於「$T$ 的補集合 $\subseteq$ $S$ 的補集合」，
+把 $f$ 存到補集合的位置，做一次子集合加總，再從補集合的位置讀回來。 兩種結
+果相同，直接改條件比較不容易寫錯。
+
+\subsection{例題：工具包接得了幾張維修單}
+\label{sec:ex-bm-sos}
+
+\textbf{題意}（本書自編，用來練習這一節的寫法）
+
+\begin{itemize}
+\item 水電行有 $n$ 種工具，編號 $0$ 到 $n - 1$。 有 $p$ 張維修單，每張寫著需
+要哪些工具；有 $q$ 個工具包，每個裝著某些工具。 兩者都用長度 $n$ 的 01 字串
+表示，第 $j$ 個字元是 \texttt{1} 表示需要（或裝著）第 $j$ 種工具。
+\item 工具包裝著某張維修單要的每一種工具，就說它接得了這張單。
+\item 第一行輸出 $q$ 個數，依序是每個工具包接得了幾張維修單；第二行輸出 $p$
+個數，依序是每張維修單有幾個工具包接得了。 $n \le 20$，$p, q \le 2 \times 10^5$。
+\end{itemize}
+
+例如 $n = 3$，維修單是 \texttt{100}、\texttt{110}、\texttt{001}、\texttt{101}、
+\texttt{100}、\texttt{011}，工具包是 \texttt{110}、\texttt{111}、\texttt{101}、
+\texttt{010}。 第一個工具包裝著第 $0$、$1$ 種工具，接得了 \texttt{100}、
+\texttt{110}、\texttt{100} 三張；最後一個只有第 $1$ 種，一張都接不了。 第一張
+維修單只要第 $0$ 種，前三個工具包都接得了。
+
+\textbf{想法}
+
+暴力解是每個工具包和每張維修單各比一次，看 \texttt{(order \& bag) == order}，
+共 $p \times q$ 次，最大是 $4 \times 10^{10}$，太慢。 它只有幾行，留著對拍。
+
+\textbf{組合的種類比單子少。} 工具只有 $20$ 種，不同的組合最多
+$2^{20} \approx 10^6$ 種，單子和工具包卻有幾十萬個，而且答案只和工具組合有關。
+先把需要同一組工具的維修單併在一起，$f(T)$ 是需要的工具剛好是 $T$ 的張數。
+裝著 $S$ 的工具包接得了的單，需要的工具 $T \subseteq S$，張數是 $g(S)$，就是
+子集合加總。 反過來，需要 $S$ 的維修單，接得了它的工具包裝著 $T \supseteq S$，
+個數是工具包那邊的超集合加總。
+
+\textbf{兩個方向各做一次。} 每個工具包各自列舉子集合，工具包裝得很滿時最壞是
+$2 \times 10^5 \times 2^{20}$ 次；對每個集合列舉子集合是 $3^{20}$ 次。 兩種都
+太慢，所以兩邊都用逐位的做法，各 $20 \times 2^{20} \approx 2 \times 10^7$ 次。
+兩個陣列可以在同一組迴圈裡更新，互不影響。
+
+同樣的模型也出現在別的地方：職缺寫著要哪些技能、求職者列出會哪些技能，對每位
+求職者數他符合幾個職缺。
+
+\textbf{程式}
+
+\begin{example}[label=ex:bm-sos]{cpp}{(tools.cpp) 工具包接得了幾張維修單}
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, p, q;
+    cin >> n >> p >> q;
+    // mask[0..p-1]：維修單要的工具；mask[p..p+q-1]：工具包的工具
+    vector<int> mask(p + q, 0);
+    for (int &m : mask) {
+        string s;
+        cin >> s;
+        for (int j = 0; j < n; j++) {
+            if (s[j] == '1') {
+                m |= 1 << j;              // 第 j 個字元對應第 j 位
+            }
+        }
+    }
+    // 一開始：sub[S] 是要的剛好是 S 的單數，sup[S] 是裝的
+    //         剛好是 S 的包數
+    // 做完後：sub[S] 是要的都在 S 裡的單數，sup[S] 是裝的
+    //         包含 S 的包數
+    vector<int> sub(1 << n, 0), sup(1 << n, 0);
+    for (int j = 0; j < p; j++) {
+        sub[mask[j]]++;
+    }
+    for (int j = p; j < p + q; j++) {
+        sup[mask[j]]++;
+    }
+    for (int i = 0; i < n; i++) {         // 第 i 輪放寬第 i 位
+        for (int S = 0; S < (1 << n); S++) {
+            if ((S >> i) & 1) {
+                sub[S] += sub[S ^ (1 << i)];    // 子集合可以沒有 i
+            } else {
+                sup[S] += sup[S | (1 << i)];    // 超集合可以多一個 i
+            }
+        }
+    }
+    for (int j = p; j < p + q; j++) {
+        cout << sub[mask[j]] << (j + 1 == p + q ? '\n' : ' ');
+    }
+    for (int j = 0; j < p; j++) {
+        cout << sup[mask[j]] << (j + 1 == p ? '\n' : ' ');
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 6 4 \\
+100 \\
+110 \\
+001 \\
+101 \\
+100 \\
+011 \\
+110 \\
+111 \\
+101 \\
+010 \\
+}{
+3 6 4 0 \\
+3 2 2 2 3 1 \\
+}
+
+\begin{itemize}
+\item 字串的第 $j$ 個字元對應第 $j$ 位，所以 \texttt{110} 是集合 $\{0, 1\}$，
+遮罩寫成二進位是 \texttt{011}。 維修單和工具包用同一種對應方式就好。
+\item \texttt{sub}、\texttt{sup} 在迴圈前後的意思不同，註解兩個都寫出來。
+\item 答案最大是 $2 \times 10^5$，\texttt{int} 夠用。 如果 $f$ 本身很大（例如
+每張單有不同的工資，要加總工資），加起來可能超過 \texttt{int}，要用
+\texttt{long long}。
+\end{itemize}
+
+\textbf{複雜度}
+
+讀入是 $O((p + q) \cdot n)$，兩個方向的加總一起是 $O(n \cdot 2^n)$，
+$n = 20$ 時約 $2 \times 10^7$ 次。 兩個陣列各 $2^{20}$ 個 \texttt{int}，共
+$8$ MB。 $n = 20$、$p = q = 2 \times 10^5$ 的隨機輸入在本書測試的環境下約
+$0.06$ 秒。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{兩層迴圈對調}：外層寫 \texttt{S}、內層寫 \texttt{i}。 範例的輸
+入第一行印出 \texttt{3 9 4 0}：裝了全部三種工具的工具包算出 $9$ 張，比維修單
+的總數 $6$ 還多。 對調之後，處理 $\{0, 1, 2\}$ 時讀到的 $\{1, 2\}$、
+$\{0, 2\}$、$\{0, 1\}$ 都已經是完整的加總，像 $\{2\}$ 這種同時是其中兩個的子
+集合的，就被加了兩次。 第二行的超集合也錯，印出 \texttt{2 2 1 2 2 1}：讀
+$S \cup \{i\}$ 時，那一格還沒算。
+\item \textbf{同一組工具只記一次}：把 \texttt{sub[mask[j]]++} 寫成
+\texttt{sub[mask[j]] = 1}。 範例第一行印出 \texttt{2 5 3 0}：有兩張單都只要第 $0$
+種工具，只算到一張。 單子比 $2^n$ 多時，一定會有重複的組合。
+\item \textbf{超集合忘了檢查第 $i$ 位}：每個 $S$ 都加 \texttt{sup[S | (1 << i)]}。
+$S$ 本來就有 $i$ 時，\texttt{S | (1 << i)} 就是 $S$ 自己，等於把自己加倍。 範
+例第二行印出 \texttt{6 8 4 8 6 4}。
+\end{itemize}
+
+看到「每個集合都要一個答案，答案是它所有子集合（或超集合）的值合起來」，元素
+又只有二十個上下，就用子集合加總。 加法換成取最大值、取最小值或 OR 也照樣可
+以做。 不能用的情況：合起來的方式同時和 $S$、$T$ 有關，例如
+第~\ref{sec:ex-bm-kit}~節的 $\mathrm{dp}(S \setminus G)$ 要看剩下的是哪些人，
+就不是把一個固定的 $f(T)$ 加起來，只能列舉子集合的子集合。 只問一兩個集合時，
+直接列舉它的子集合（$2^{|S|}$ 次）就好。
 
 \section{一列一列鋪地磚}
 \label{sec:bm-tiling}
@@ -1228,26 +1563,26 @@ int w;
 vector<long long> nxt;   // 下一列各種「被伸進來的格子」的鋪法數
 
 // 這一列處理到第 c 格；filled：這一列已經被蓋住（或是柱子）的格子
-// out：往下一列伸出去的直磚蓋住了下一列的哪些格子；ways：到這裡的鋪法數
+// out：伸進下一列的直磚蓋住哪些格子；ways：到這裡的鋪法數
 void go(int c, int filled, int out, long long ways) {
     if (c == w) {
         nxt[out] = (nxt[out] + ways) % MOD;
         return;
     }
-    if ((filled >> c) & 1) {                      // 這格已經有東西，換下一格
+    if ((filled >> c) & 1) {                      // 這格已經有東西
         go(c + 1, filled, out, ways);
         return;
     }
-    go(c + 1, filled, out | (1 << c), ways);      // 放一塊直磚，蓋住下一列的第 c 格
+    go(c + 1, filled, out | (1 << c), ways);      // 直磚，往下伸
     if (c + 1 < w && !((filled >> (c + 1)) & 1)) {
-        go(c + 2, filled, out, ways);             // 放一塊橫磚，蓋住第 c、c + 1 格
+        go(c + 2, filled, out, ways);             // 橫磚，連右格
     }
 }
 
 int main() {
     int h;
     cin >> h >> w;
-    vector<int> pillar(h, 0);                     // pillar[r]：第 r 列哪幾格是柱子
+    vector<int> pillar(h, 0);                     // 第 r 列的柱子
     for (int r = 0; r < h; r++) {
         string s;
         cin >> s;
@@ -1257,20 +1592,21 @@ int main() {
             }
         }
     }
-    // cur[mask]：前面幾列都鋪好，而且上一列的直磚剛好伸進這一列 mask 這幾格的鋪法數
+    // cur[mask]：前面幾列都鋪好，而且上一列的直磚剛好伸進這一列
+    // mask 這幾格的鋪法數
     vector<long long> cur(1 << w, 0);
-    cur[0] = 1;                                   // 第 0 列上面沒有東西伸下來
+    cur[0] = 1;                                   // 上面沒東西伸下來
     for (int r = 0; r < h; r++) {
         nxt.assign(1 << w, 0);
         for (int mask = 0; mask < (1 << w); mask++) {
             if (cur[mask] == 0 || (mask & pillar[r]) != 0) {
-                continue;                         // 沒有這種情況，或直磚戳到柱子
+                continue;                         // 沒有或戳到柱子
             }
             go(0, mask | pillar[r], 0, cur[mask]);
         }
         cur = nxt;
     }
-    cout << cur[0] << '\n';                       // 最後一列不能有磚伸出地板
+    cout << cur[0] << '\n';                       // 不能有磚伸出地板
     return 0;
 }
 \end{example}
@@ -1330,7 +1666,7 @@ $1000 \times 10$ 在本書測試的環境下不到 $0.01$ 秒。 寬和高差很
 \section{什麼時候用位元 DP}
 \label{sec:bm-when}
 
-第~3~章 3.1 節的狀態表，再加上這一章的三種：
+第~3~章 3.1 節的狀態表，再加上這一章的四種：
 
 \begin{center}
 \begin{tabular}{p{0.27\linewidth}p{0.36\linewidth}p{0.27\linewidth}}
@@ -1338,6 +1674,7 @@ $1000 \times 10$ 在本書測試的環境下不到 $0.01$ 秒。 寬和高差很
 狀態 & 轉移在看什麼 & 本章的例子 \\
 \midrule
 一個集合 $S$ & 下一個加進來的是誰；或一次挑出一整組（子集合的子集合） & 關主、出場順序、專題小組 \\
+一個集合 $S$，值是子集合（或超集合）的加總 & 一次放寬一位 & 工具包 \\
 集合 $S$ 加上最後一個 $i$ & 從 $i$ 走到哪一個還沒去過的 $j$ & 跑腿路線、回收推車 \\
 一列格子的樣子 & 這一列怎麼鋪，伸進下一列的是哪些格子 & 鋪地磚 \\
 \bottomrule
@@ -1392,7 +1729,7 @@ $4^k$ 個狀態。 這時遮罩的位數是 $2k$，$k = 16$ 就要 $32$ 位，\t
 不可能的狀態 & 排不出來的集合記成 $0$，從不合法的開頭接下去（印出 $24$） &
 第~\ref{sec:ex-bm-show}~節 \\
 計算順序 & 旅行推銷員的外層放 \texttt{last}（印出 $32$）；子集合的迴圈漏掉空集
-合或停不下來 & 第~\ref{sec:bm-tsp}、\ref{sec:bm-submask}~節 \\
+合或停不下來；子集合加總的外層放集合（重複計算） & 第~\ref{sec:bm-tsp}、\ref{sec:bm-submask}、\newline\ref{sec:bm-sos}~節 \\
 轉移的成本 & 回程忘了加、重量算錯時間點、題目要不要回到起點 &
 第~\ref{sec:bm-tsp}、\ref{sec:ex-bm-cart}~節 \\
 記憶體與數值 & $2^{20} \times 20$ 的表 $80$ MB、宣告在 \texttt{main} 裡當掉；費
@@ -1444,6 +1781,32 @@ MB？ 最內層大約執行幾次？
 \item 回收推車的費力值如果改成「距離 $\times$ 出發以來已經走過的總距離」，
 $\mathrm{dp}(S, i)$ 還夠嗎？ 說明理由。
 
+\item 三個元素的 $f$ 如下（\texttt{mask} 由右往左是第 $0$、$1$、$2$ 位）：
+\begin{center}
+\begin{tabular}{c|cccccccc}
+\toprule
+\texttt{mask} & \texttt{000} & \texttt{001} & \texttt{010} & \texttt{011} & \texttt{100} & \texttt{101} & \texttt{110} & \texttt{111} \\
+\midrule
+$f$ & 1 & 0 & 2 & 1 & 0 & 3 & 1 & 1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+\begin{enumerate}
+\item 照第~\ref{sec:bm-sos-bits}~節的逐位做法，寫出每一輪之後八格的值。
+\item 第 $1$ 輪做完時（$h_2$），\texttt{111} 和 \texttt{110} 兩格各包含哪幾個
+$T$？ 為什麼 \texttt{110} 那格只有兩個？
+\item 求超集合加總 $G(\texttt{010})$。
+\end{enumerate}
+
+\item 子集合加總的變化。
+\begin{enumerate}
+\item 有人把兩層迴圈對調（外層 \texttt{S}、內層 \texttt{i}）。 $n = 2$、四個
+$f$ 都是 $1$ 時，$g(\texttt{11})$ 算出多少？ 哪一個 $T$ 被算了兩次？
+\item 如果要的是「$S$ 的子集合裡 $f$ 的最大值」，把 \texttt{+=} 改成取最大值。
+這時兩層迴圈對調還對不對？ 為什麼和加總不一樣？
+\item 已經知道每個集合的 $g$，怎麼在 $O(n \cdot 2^n)$ 還原出 $f$？
+\end{enumerate}
+
 \item 用第~\ref{sec:bm-tiling}~節的方法，處理 $3$ 列 $2$ 行、沒有柱子的地板。
 列出每一列處理完的狀態和方法數，最後共有幾種鋪法？
 \end{drills}
@@ -1494,6 +1857,9 @@ $\mathrm{dp}(S, i)$ 還夠嗎？ 說明理由。
 \item 能寫出旅行推銷員的 $\mathrm{dp}(S, i)$，依題目改初始值和答案（要不要回
 起點、起點終點是否固定），並用 $\mathit{from}$ 找回路線。
 \item 能用 \texttt{sub = (sub - 1) \& mask} 列舉子集合，說出總次數為什麼是 $3^n$。
+\item 要對每個集合加總它的子集合（或超集合）時，能寫出外層是位、內層是集合
+的 $O(n \cdot 2^n)$ 迴圈，並用「只在前 $i$ 位可能不同」說明每個子集合為什麼
+剛好算到一次。
 \item 動手前能算出位元 DP 表格要幾 MB，知道 $2^{20} \times 20$ 個 \texttt{int}
 是 $80$ MB。
 \end{itemize}
@@ -1502,7 +1868,8 @@ $\mathrm{dp}(S, i)$ 還夠嗎？ 說明理由。
 
 \begin{itemize}
 \item Antti Laaksonen，\textit{Guide to Competitive Programming}，第 3 版，6.2.4、
-6.2.5 節：從排列改成子集合的動態規劃，以及一列一列數鋪磚方法的寫法，篇幅短。
+6.2.5 節：從排列改成子集合的動態規劃，以及一列一列數鋪磚方法的寫法，篇幅短；
+15.6.2 節用另一種寫法講子集合加總。
 \item Steven Halim 等，\textit{Competitive Programming 4}，Book 1 第 3.5.2 節的
 旅行推銷員，和 Book 2 第 8 章更多用遮罩當狀態的題型。
 \item Steven S. Skiena，\textit{The Algorithm Design Manual}，第 3 版，10.9 節：
@@ -1557,6 +1924,36 @@ $3 + 4 + 9 + 9$）。
 $(S, i)$ 的兩條路線，可能一條費力值比較小、但走過的距離比較長，另一條相反；
 之後每一段都要乘上那個距離，哪一條好要看後面，沒辦法只留一條。 回收推車能用
 $\mathrm{dp}(S, i)$，正是因為重量只看 $S$。
+
+\item
+\begin{enumerate}
+\item 第 $0$ 輪後：$1, 1, 2, 3, 0, 3, 1, 2$；第 $1$ 輪後：$1, 1, 3, 4, 0, 3, 1, 5$；
+第 $2$ 輪後：$1, 1, 3, 4, 1, 4, 4, 9$（依 \texttt{000} 到 \texttt{111} 的順序）。
+最後 $g(\texttt{111}) = 9$，等於八個 $f$ 的總和。
+\item \texttt{111} 那格是 \texttt{111}、\texttt{110}、\texttt{101}、
+\texttt{100}，$1 + 1 + 3 + 0 = 5$。 \texttt{110} 那格只有 \texttt{110}、
+\texttt{100}，$1 + 0 = 1$：前兩位雖然都放寬了，但 \texttt{110} 的第 $0$ 位本
+來就是 $0$，子集合在這一位沒有別的選擇。
+\item 包含 \texttt{010} 的是 \texttt{010}、\texttt{011}、\texttt{110}、
+\texttt{111}，$2 + 1 + 1 + 1 = 5$。 用超集合的逐位做法也得到 $5$。
+\end{enumerate}
+
+\item
+\begin{enumerate}
+\item 算出 $5$，正確是 $4$。 處理 \texttt{11} 時，先加上已經算好的
+$g(\texttt{10}) = 2$，再加上 $g(\texttt{01}) = 2$；兩者都含 $f(\varnothing)$，
+空集合被算了兩次。
+\item 還是對。 外層是集合時，$g(S)$ 讀到的 $g(S \setminus \{i\})$ 都已經算完，
+而 $S$ 的每個真子集合都落在某個 $S \setminus \{i\}$ 裡，所以取到的是全部子集
+合的最大值。 同一個 $T$ 被看好幾次，最大值不會變；加總會多加，所以加總才需要
+「剛好一次」。
+\item 把 \texttt{+=} 改成 \texttt{-=}，其他不變。 第 $i$ 輪做的是
+$h_{i+1}(S) = h_i(S) + h_i(S \setminus \{i\})$，而 $S \setminus \{i\}$ 那格在這一
+輪不會變，所以 $h_i(S) = h_{i+1}(S) - h_{i+1}(S \setminus \{i\})$，可以一輪一
+輪減回去。 照理要從第 $n - 1$ 輪倒著減回第 $0$ 輪；不過每一輪只動自己那一位，
+各輪的先後不影響結果（就像二維前綴和先做列或先做行都一樣），照原本的順序減也
+對。
+\end{enumerate}
 
 \item 開始 $\varnothing$：$1$。 第 $0$ 列（兩塊直磚或一塊橫磚）：
 $\{0, 1\}$：$1$，$\varnothing$：$1$。 第 $1$ 列：$\varnothing$ 又分出兩種，

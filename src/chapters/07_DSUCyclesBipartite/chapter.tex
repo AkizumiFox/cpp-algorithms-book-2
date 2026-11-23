@@ -53,7 +53,8 @@ $4 \times 10^{10}$ 步，來不及。 這一章的第一個工具\textbf{並查�
 上面的問題還藏著第二件事：第 5 天和第 7 天的路讓圖出現了\textbf{環}。 這一章
 接著講怎麼在無向圖和有向圖上找環，然後看兩種形狀特別的圖：能不能把所有點分成
 兩邊、每條邊都跨過兩邊（二分圖）；以及每個點剛好只有一條往外的箭頭（函數圖），
-它和第 1 本第~4~章 4.6 節的週期偵測是同一件事。
+它和第 1 本第~4~章 4.6 節的週期偵測是同一件事。 最後一節回到並查集，讓它除了
+「同不同群」，還記得同一群裡兩點的關係，例如同隊或不同隊、誰比誰高多少。
 
 這一章用到第 1 本第~11~章的 BFS、DFS 和連通元件，以及第 1 本 11.5 節遞迴太深時改用自己的堆
 疊；第 1 本第~13~章「樹剛好有 $n - 1$ 條邊」；第 1 本第~4~章 4.6 節的 $\rho$ 形狀與週期。
@@ -329,6 +330,8 @@ int main() {
 本章練習第~2~題會用到這個想法。
 \item 不能用：要知道兩點之間的路怎麼走、最短要幾步。 並查集只知道在不在同一
 群，不知道路徑，這時用第 1 本第~11~章的 BFS。
+\item 要改寫：除了「同不同群」，還要知道同一群裡兩點的關係，例如「同隊還是不同
+隊」「$b$ 比 $a$ 高多少」。 這時用第~\ref{sec:dsu-parity}~節的帶權並查集。
 \end{itemize}
 
 \subsection{例題：社團合併與總積分}
@@ -458,39 +461,32 @@ same \\
 \textbf{複雜度}
 
 每個操作幾乎是常數時間，總共 $O((n + q)\,\alpha(n))$。 最大的測試資料在本書測
-試的環境下約 $0.15$ 秒。
+試的環境下約 $0.03$ 秒。
 
 \subsection{常見錯誤}
 
 \begin{itemize}
 \item \textbf{積分總和用 \texttt{int}}：把 \texttt{total} 改成
-\texttt{vector<int>}。 輸入三位積分都是 $10^9$ 的學生，全部合併後查詢，正確答
-案是 \texttt{3 3000000000}，在本書測試的環境下印出 \texttt{3 -1294967296}。
+\texttt{vector<int>}。 輸入
+\begin{code}{text}{三位積分都是 10 的 9 次方的學生}
+3 5
+1000000000 1000000000 1000000000
+1 2 2
+1 1 2
+1 2 3
+1 3 1
+2 1
+\end{code}
+最後的查詢應該印 \texttt{3 3000000000}，在本書測試的環境下印出
+\texttt{3 -1294967296}。
 \item \textbf{沒有先判斷已經同社團}：拿掉 \texttt{if (a == b)} 那一段。 同一群
 合併時 \texttt{parent[a] = b} 只是把根接到自己，看不出問題，但人數和積分會再
-加一次。 上面那組輸入裡，第一個操作 \texttt{1 2 2} 應該印 \texttt{same}，這樣
+加一次。 同一組輸入裡，第一個操作 \texttt{1 2 2} 應該印 \texttt{same}，這樣
 寫會印 \texttt{2}；最後的查詢印出 \texttt{8 8000000000}。
 \item \textbf{查詢時忘了 \texttt{find}}：直接讀 \texttt{members[a]}。 範例最
 後一行應該是 \texttt{4 9}，這樣寫印出 \texttt{1 4}，因為學生 3 已經不是根，它
 身上的數字停在合併前。
 \end{itemize}
-
-\subsection{預告：帶權並查集與奇偶性}
-\label{sec:dsu-parity}
-
-有一類題目只有兩隊，給的關係有兩種：「$a$、$b$ 同隊」和「$a$、$b$ 不同隊」。 例如：「1 和 2 不同隊」「2 和 3 不同隊」，可以推出 1 和
-3 同隊；如果接著又說「1 和 3 不同隊」，就自相矛盾了。
-
-並查集可以處理這種關係：每個點除了 \texttt{parent}，再多記一個 $0$ 或 $1$，表
-示「我和 \texttt{parent} 同隊（$0$）還是不同隊（$1$）」。 沿著樹往上走到根時，
-把路上的這些數用互斥或（\texttt{\^}）累加起來，就知道自己和根同隊還是不同隊。
-兩個點在同一群時，比較它們各自和根的關係，就能回答「同隊、不同隊」或發現矛盾。
-這種在 \texttt{parent} 旁邊多記一個「和上一層的關係」的寫法叫\textbf{帶權並查
-集}（weighted union-find），路徑壓縮時這個數也要跟著更新，細節比一般的並查集
-多一些。
-
-完整的寫法留到《C++ 演算法解題 3》。 如果所有關係一次給完、不必邊加邊問，這類題目也可以用第
-~\ref{sec:bipartite}~節的二分圖上色來做，實作練習裡有兩題可以用兩種方法比較。
 
 \section{無向圖找環}
 \label{sec:cycle-undirected}
@@ -931,7 +927,7 @@ ABCCCA \\
 \textbf{複雜度}
 
 每個點進出 \texttt{group} 一次，每條邊從兩端各看一次，$O(n + m)$。 最大的測試
-資料在本書測試的環境下約 $0.15$ 秒，大部分花在讀輸入。
+資料在本書測試的環境下約 $0.03$ 秒，大部分花在讀輸入。
 
 \subsection{常見錯誤}
 
@@ -964,6 +960,8 @@ $\{1, 2, 6\}$ 會被拖累，印出 \texttt{CCCCCC}。
 有幾種分法」、「每個點分到哪邊」。
 \item 不能用：分成\textbf{三組}以上。 三種顏色的上色問題，目前沒有人知道有效率
 的演算法，題目的點數通常很小，只能用第 1 本第~4~章的回溯。 看到「三組」時先看資料範圍。
+\item 要改寫：「同組」「不同組」的說法一條一條送來，每條都要馬上判斷有沒有矛盾。
+每來一條就重新上色太慢，改用第~\ref{sec:dsu-parity}~節的帶權並查集。
 \end{itemize}
 
 \section{函數圖}
@@ -1290,7 +1288,7 @@ $m_1 m_2$ 種。
 \textbf{複雜度}
 
 最多 $m_1 m_2 \le 4 \times 10^6$ 步，每步 $O(1)$。 最大的測試資料在本書測試的
-環境下約 $0.02$ 秒。
+環境下不到 $0.01$ 秒。
 
 \subsection{常見錯誤}
 
@@ -1315,6 +1313,348 @@ $m_1 m_2$ 種。
 會從第 $1$ 秒開始比，印出別的數字或 $-1$。
 \end{itemize}
 
+\section{帶權並查集}
+\label{sec:dsu-parity}
+
+把第~\ref{sec:bipartite}~節的分組問題換一種給法：說法一條一條送來，例如「1 和
+2 不同隊」「2 和 3 不同隊」「1 和 3 不同隊」，每收到一條，就要馬上回答它和前面
+的說法有沒有衝突。 前兩條推得出 1、3 同隊，所以第三條和前面矛盾。 用上色來做，
+每收到一條就要重新建圖、重新 BFS；$n$ 個人、$m$ 條說法，總共 $O(m(n + m))$。
+
+說法一條一條加進來，正是並查集擅長的事，缺的是它不記得同一群裡兩個人是什麼關
+係。 在 \texttt{parent} 旁邊多記一個數把關係補上，叫\textbf{帶權並查集}（weighted
+disjoint set union）。 它也能處理帶數值的關係，例如「$b$ 點比 $a$ 點高 $3$ 公
+尺」。 下面先講數值的版本，隊伍的版本是它的特例。
+
+\subsection{每個點記它和上一層的差}
+
+每個點 $x$ 有一個不知道的高度 $h(x)$。 一條說法是「$b$ 比 $a$ 高 $w$」，也就是
+$h(b) - h(a) = w$，$w$ 可以是負的。 並查集照常把每一群存成一棵樹，每個點再多記
+一個數
+\[
+\texttt{diff[x]} = h(x) - h(\texttt{parent[x]}) ,
+\]
+意思是「$x$ 比它的上一層高多少」。 根的上一層是自己，\texttt{diff} 是 $0$。
+
+從 $x$ 往上走到根，把路上的 \texttt{diff} 全部加起來，中間每一層的高度一加一減
+抵消，剩下的就是 $x$ 比根高多少。 例如 $x \to p \to r$：
+$\bigl(h(x) - h(p)\bigr) + \bigl(h(p) - h(r)\bigr) = h(x) - h(r)$。 同一群的兩點 $a$、$b$ 各自算出比根高多少，相減就得到 $h(b) - h(a)$，根本身多高
+不必知道。 下圖左邊，1 比根 4 高 $(-3) + (-2) = -5$，也就是低 $5$；3 比 4 高
+$2$，所以 3 比 1 高 $2 - (-5) = 7$。
+
+\begin{center}
+\begin{tikzpicture}[x=1cm, y=1.1cm]
+\begin{scope}
+\node[font=\small] at (1,2.75) {壓縮前};
+\node[dsv] (4) at (1,2) {4};
+\node[dsvhl] (2) at (0.3,1) {2};
+\node[dsv] (3) at (1.7,1) {3};
+\node[dsvhl] (1) at (0.3,0) {1};
+\draw[dsd] (2) -- node[left, dslbl] {$-2$} (4);
+\draw[dsd] (3) -- node[right, dslbl] {$2$} (4);
+\draw[dsd] (1) -- node[left, dslbl] {$-3$} (2);
+\end{scope}
+\begin{scope}[xshift=5cm]
+\node[font=\small] at (1,2.75) {\texttt{find(1)} 之後};
+\node[dsv] (4) at (1,2) {4};
+\node[dsv] (2) at (0.1,1) {2};
+\node[dsv] (3) at (1.9,1) {3};
+\node[dsvhl] (1) at (1,0.8) {1};
+\draw[dsd] (2) -- node[left, dslbl] {$-2$} (4);
+\draw[dsd] (3) -- node[right, dslbl] {$2$} (4);
+\draw[dsdhl] (1) -- node[right, dslbl] {$-5$} (4);
+\end{scope}
+\end{tikzpicture}
+\diagcaption{箭頭指向 \texttt{parent}，旁邊的數是 \texttt{diff}：箭頭尾端的點比
+箭頭指到的點高多少。 壓縮之後 1 直接接到根，\texttt{diff[1]} 變成兩段的和。}
+\label{fig:dsu-weights}
+\end{center}
+
+隊伍的版本只看奇偶。 兩隊編成 $0$、$1$，\texttt{rel[x]} 是 $0$ 表示 $x$ 和上一
+層同隊，$1$ 表示不同隊。 「不同隊的不同隊」是同隊，$1 + 1 = 2$ 是偶數，剛好對
+應 $0$。 所以隊伍版本就是把加減法都改成只留奇偶，而只留奇偶的加法和減法，都和
+互斥或（\texttt{\^}）一樣。
+
+\subsection{路徑壓縮：把差一路加上去}
+
+\texttt{find} 照樣做路徑壓縮，但 \texttt{diff[x]} 記的是「比上一層高多少」，
+\texttt{x} 改接到根，\texttt{diff[x]} 也要改成「比根高多少」：
+
+\begin{code}{cpp}{帶權並查集的 find}
+int find(int x) {
+    if (parent[x] == x) {
+        return x;
+    }
+    int r = find(parent[x]);    // 上一層先接到根
+    diff[x] += diff[parent[x]]; // 上一層比根高多少，加過來
+    return parent[x] = r;
+}
+\end{code}
+
+三行的順序不能換。 第一行回來之後，上一層 \texttt{p = parent[x]} 已經直接接在
+根底下，\texttt{diff[p]} 是 $p$ 比根高多少；這時 \texttt{parent[x]} 還是 $p$，
+第二行加上它，得到 $x$ 比根高多少；最後才把 \texttt{parent[x]} 改成根。
+
+圖~\ref{fig:dsu-weights} 的 \texttt{find(1)}：遞迴到 2，2 的上一層 4 是根，
+\texttt{diff[2]} 加上 \texttt{diff[4] = 0}，不變；回到 1，\texttt{diff[1]} 加上
+\texttt{diff[2]}，變成 $-3 + (-2) = -5$，再把 1 接到 4。 壓縮完 \texttt{find} 回
+傳之後，\texttt{diff[x]} 就是 $x$ 比根高多少，後面都會用到這一點。
+
+\subsection{合併：新邊的差怎麼算}
+
+收到「$b$ 比 $a$ 高 $w$」，先找出兩邊的根 $r_a$、$r_b$。 不同根時，要把一個根接
+到另一個根底下。 不能直接把 $a$ 接到 $b$ 底下：$a$ 原本有自己的上一層，改掉就和
+原本那一群斷開了。 接的是根，新邊的 \texttt{diff} 就要從已知的三段推出來。
+
+\begin{center}
+\begin{tikzpicture}[x=1.4cm, y=1.2cm]
+\node[dsv] (ra) at (0,1.5) {$r_a$};
+\node[dsv] (a) at (0,0) {$a$};
+\node[dsv] (rb) at (3,1.5) {$r_b$};
+\node[dsv] (b) at (3,0) {$b$};
+\draw[dsd] (a) -- node[left, dslbl] {\texttt{diff[a]}} (ra);
+\draw[dsd] (b) -- node[right, dslbl] {\texttt{diff[b]}} (rb);
+\draw[dsebad, -{Stealth[length=2.2mm]}] (a) -- node[below, dslbl] {$h(b) - h(a) = w$} (b);
+\draw[dsdhl] (ra) -- node[above, dslbl] {要算的 \texttt{diff}} (rb);
+\end{tikzpicture}
+\diagcaption{兩次 \texttt{find} 之後，$a$、$b$ 都直接接在各自的根底下。 從 $r_a$
+往下到 $a$，沿新說法走到 $b$，再往上到 $r_b$，就是橘色那條新邊。}
+\label{fig:dsu-merge}
+\end{center}
+
+把 $r_a$ 接到 $r_b$ 底下，新邊要記 $h(r_a) - h(r_b)$。 照上圖從 $r_a$ 繞到 $r_b$，
+三段的差加起來：
+\[
+h(r_a) - h(r_b)
+= \underbrace{\bigl(h(r_a) - h(a)\bigr)}_{-\texttt{diff[a]}}
++ \underbrace{\bigl(h(a) - h(b)\bigr)}_{-w}
++ \underbrace{\bigl(h(b) - h(r_b)\bigr)}_{\texttt{diff[b]}}
+= \texttt{diff[b]} - \texttt{diff[a]} - w .
+\]
+\texttt{diff[a]} 是「$a$ 比 $r_a$ 高多少」，反方向走要變號，所以第一段是負的；
+第二段也是反著走新說法，是 $-w$。 按大小合併時，如果要改成 $r_b$ 接到 $r_a$ 底下，
+記的是 $h(r_b) - h(r_a)$，剛好是上式變號。
+
+隊伍版本把減法都換成互斥或，新邊是 \texttt{rel[a] \^{} rel[b] \^{} t}（$t$ 是
+新說法，$0$ 同隊、$1$ 不同隊）。 互斥或不分方向，誰接到誰底下都一樣，不必變號。
+
+\subsection{問關係、抓矛盾}
+
+有了 \texttt{find} 和合併，兩點的關係分三種情形：
+
+\begin{itemize}
+\item \textbf{同一群}：$b$ 比 $a$ 高 \texttt{diff[b] - diff[a]}，答案是確定的。
+\item \textbf{不同群}：目前不知道。 兩群之間沒有任何說法，其中一群整群一起變高或
+變低，所有說法都還成立，$h(b) - h(a)$ 卻跟著變。
+\item \textbf{矛盾}：新收到「$b$ 比 $a$ 高 $w$」，而 $a$、$b$ 已經同一群，
+\texttt{diff[b] - diff[a]} 卻不等於 $w$。 這條說法和前面採納的說法不可能同時成
+立，丟掉它；相等就表示這條是已知的事，也不用動。
+\end{itemize}
+
+隊伍版本一樣：同一群時看 \texttt{rel[a] \^{} rel[b]}，$0$ 同隊、$1$ 不同隊；新
+說法和它不同就是矛盾。 這時說法會圍出一個環，環上「不同隊」的邊有奇數條；說法
+全是不同隊時，就是第~\ref{sec:bipartite}~節的奇環。
+
+\begin{whybox}[同一群時答案確定，矛盾不會誤報也不會漏報]
+把每個點的高度定成「走到根一路上 \texttt{diff} 的和」，根是 $0$。 路徑壓縮只把
+兩段併成一段，總和不變；合併時被接過去的那一群整群加上同一個數，群內原有的說法
+仍然成立，新邊又是照上圖算的，新說法也成立；同一群時只有相符才採納。 所以採納的
+說法永遠有這一組解，程式不會誤報矛盾。 反過來，樹上每條邊的 \texttt{diff} 都是由
+採納的說法加減出來的，只要採納的說法都成立，同一群兩點的差就一定是
+\texttt{diff[b] - diff[a]}；新說法不相等，就沒有任何一組解，矛盾也不會漏報。
+\end{whybox}
+
+\subsection{範例：測量點的高度差}
+
+山區有 $n$ 個測量點。 測量員一筆一筆回報，系統要立刻判斷。 輸入第一行是 $n$、
+$q$，接著 $q$ 行：
+
+\begin{itemize}
+\item \texttt{1 a b w}：回報「$b$ 比 $a$ 高 $w$ 公尺」。 和之前採納的回報矛盾就
+輸出 \texttt{wrong} 並丟掉這筆，否則輸出 \texttt{ok} 並採納。
+\item \texttt{2 a b}：問 $b$ 比 $a$ 高多少。 能從採納的回報推出來就輸出這個數，推
+不出來輸出 \texttt{?}。
+\end{itemize}
+
+$n, q \le 2 \times 10^5$，$|w| \le 10^9$。 一條鏈上的差最多累加 $n - 1$ 次，大約
+$2 \times 10^{14}$，\texttt{diff} 要用 \texttt{long long}。
+
+\begin{example}[label=ex:levels]{cpp}{(levels.cpp) 測量點的高度差}
+#include <iostream>
+#include <utility>
+#include <vector>
+using namespace std;
+
+vector<int> parent, sz;
+vector<long long> diff;            // diff[x] = h(x) - h(parent[x])
+
+int find(int x) {
+    if (parent[x] == x) {
+        return x;
+    }
+    int r = find(parent[x]);       // 上一層先接到根
+    diff[x] += diff[parent[x]];    // 上一層比根高多少，加過來
+    return parent[x] = r;
+}
+
+// 採納「b 比 a 高 w」；和已知的資訊矛盾時回傳 false
+bool relate(int a, int b, long long w) {
+    int ra = find(a), rb = find(b);
+    if (ra == rb) {
+        return diff[b] - diff[a] == w;
+    }
+    long long gap = diff[b] - diff[a] - w;  // h(ra) - h(rb)
+    if (sz[ra] > sz[rb]) {         // 改成 rb 接到 ra 底下，差要變號
+        swap(ra, rb);
+        gap = -gap;
+    }
+    parent[ra] = rb;
+    diff[ra] = gap;
+    sz[rb] += sz[ra];
+    return true;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, q;
+    cin >> n >> q;
+    parent.resize(n + 1);
+    sz.assign(n + 1, 1);
+    diff.assign(n + 1, 0);
+    for (int i = 1; i <= n; i++) {
+        parent[i] = i;
+    }
+    while (q--) {
+        int type, a, b;
+        cin >> type >> a >> b;
+        if (type == 1) {
+            long long w;
+            cin >> w;
+            cout << (relate(a, b, w) ? "ok" : "wrong") << '\n';
+        } else if (find(a) != find(b)) {
+            cout << "?\n";
+        } else {
+            cout << diff[b] - diff[a] << '\n';
+        }
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+6 10 \\
+1 1 2 3 \\
+1 3 4 -2 \\
+2 1 4 \\
+1 2 3 4 \\
+2 1 4 \\
+1 4 1 -5 \\
+1 1 3 6 \\
+1 5 6 10 \\
+1 4 6 1 \\
+2 2 5 \\
+}{
+ok \\
+ok \\
+? \\
+ok \\
+5 \\
+ok \\
+wrong \\
+ok \\
+ok \\
+-7 \\
+}
+
+第 1、2、8 筆都是兩個單點合併，例如第 1 筆 1 接到 2，\texttt{diff[1]}
+$= 0 - 0 - 3 = -3$；第 3 筆的 1、4 根不同，印 \texttt{?}；第 6 筆和已知的相符。 其
+他幾筆如下，兩個根一樣大時把 $r_a$ 接到 $r_b$ 底下。 第 4 筆之後的樹就是
+圖~\ref{fig:dsu-weights} 左邊。
+
+\begin{center}
+\begin{tabular}{cllc}
+\toprule
+筆 & 操作 & 發生的事 & 輸出 \\
+\midrule
+4 & \texttt{1 2 3 4} & 根是 2 和 4，\texttt{gap} $= 2 - 0 - 4 = -2$，2 接到 4 & \texttt{ok} \\
+5 & \texttt{2 1 4} & \texttt{find(1)} 後 \texttt{diff[1]} $= -5$，答案 $0 - (-5)$ & \texttt{5} \\
+7 & \texttt{1 1 3 6} & 同一群，$2 - (-5) = 7 \ne 6$，丟掉 & \texttt{wrong} \\
+9 & \texttt{1 4 6 1} & \texttt{gap} $= -1$；4 那群較大，改成 6 接到 4，\texttt{diff[6]} $= 1$ & \texttt{ok} \\
+10 & \texttt{2 2 5} & \texttt{find(5)} 後 \texttt{diff[5]} $= -9$，答案 $-9 - (-2)$ & \texttt{-7} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+同樣的模型也出現在別的地方：機房裡每台伺服器的時鐘各有偏差，只知道某幾對差幾
+秒，要回答任兩台差多少。
+
+\textbf{複雜度}
+
+\texttt{find} 只比原本多一次加法，按大小合併加路徑壓縮，每個操作仍然幾乎是常數
+時間，總共 $O((n + q)\,\alpha(n))$。
+
+\subsection{和建圖上色比較：離線與線上}
+
+隊伍版本的程式，只要把範例~\ref{ex:levels} 的 \texttt{diff} 換成 \texttt{rel}，
+改三個地方：\texttt{find} 裡的 \texttt{+=} 換成 \texttt{\^{}=}；同一群時檢查
+\texttt{(rel[a] \^{} rel[b]) == t}；新邊記 \texttt{rel[a] \^{} rel[b] \^{} t}，
+交換兩個根時不必變號。
+
+如果所有說法一次給完，只問「全部能不能同時成立」，不用並查集也做得到。 每條說
+法當成一條邊，邊上記 $t$，照範例~\ref{ex:cabinets} 的方法 BFS 上色，只是鄰居該
+塗的顏色從 \texttt{1 - color[u]} 改成 \texttt{color[u] \^{} t}。 說法全是「不
+同隊」時 $t$ 都是 $1$，就回到原本的二分圖。 數值版本也可以這樣做：鄰居的高度是
+$h(u) + w$，走到已經有高度的點時檢查是否相符。
+
+兩種方法的差別在什麼時候拿到資料。 上色要先把所有說法讀完、建好圖才能開始，這
+種做法叫\textbf{離線}（offline）。 帶權並查集每讀一條就處理一條，當下就能回答，
+叫\textbf{線上}（online）。
+
+\begin{center}
+\begin{tabular}{p{0.3\linewidth}p{0.3\linewidth}p{0.3\linewidth}}
+\toprule
+ & 建圖後上色（離線） & 帶權並查集（線上） \\
+\midrule
+什麼時候能開始算 & 讀完全部說法 & 每讀一條就處理 \\
+全部說法判斷一次 & $O(n + m)$ & $O((n + m)\,\alpha(n))$ \\
+每條說法之後都要回答 & 每次重做，$O(m(n + m))$ & 每條幾乎是常數時間 \\
+指出是哪幾條說法互相矛盾 & 可以，沿著 BFS 的來源找出奇環 & 只知道矛盾，說不出是哪幾條 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+只問「第一條矛盾的說法是第幾條」時，離線也有辦法：前 $k$ 條有沒有矛盾，對 $k$
+有單調性，可以用第 1 本第~3~章的對答案二分搜，每次檢查做一次上色，總共
+$O((n + m) \log m)$。 可是如果矛盾的說法要丟掉、再繼續往下判斷，每一條的答案都
+取決於前面丟掉了哪幾條，就只能一條一條照順序做，帶權並查集比較合適。
+
+\begin{itemize}
+\item 適合：兩點的關係是「同組或不同組」「差多少」，要邊收邊判斷。 說法一次給
+完、只要一個結論，或要印出互相矛盾的那一圈，改用上色。
+\item 不能用：說法會被收回，或關係只有大小、沒有確切的差（例如「$b$ 比 $a$
+高」，這是第~6~章的先後關係，要看有沒有有向環）。
+\end{itemize}
+
+\subsection{常見錯誤}
+
+下面都用範例~\ref{ex:levels} 的輸入，正確輸出最後一行是 \texttt{-7}。
+
+\begin{itemize}
+\item \textbf{\texttt{find} 先改 \texttt{parent} 再加}：寫成
+\texttt{parent[x] = find(parent[x]); diff[x] += diff[parent[x]];}。 第二行加到的
+是根的 \texttt{diff}，永遠是 $0$，上一層那一段就丟了。 第 5 筆印出 \texttt{3}，
+第 6 筆印出 \texttt{wrong}，最後一行是 \texttt{-8}。
+\item \textbf{新邊的差直接寫成 $-w$}：把 \texttt{gap} 寫成 \texttt{-w}，當成 $a$、
+$b$ 自己就是根。 前兩筆 $a$、$b$ 剛好是根，看不出來；第 4 筆的 2 是根，3 卻不是，
+第 5 筆印出 \texttt{7}，第 6 筆印出 \texttt{wrong}，最後一行是 \texttt{-5}。
+\item \textbf{交換 $r_a$、$r_b$ 時忘了變號}：只有第 9 筆會交換，前面都對，最後一行
+印出 \texttt{-9}。 這種錯在小例子裡常常不會出現，因為兩群一樣大時不交換。
+\item \textbf{\texttt{diff} 用 \texttt{int}}：$n = 4$，回報 1 到 2、2 到 3、3 到 4
+各高 $10^9$，再問 \texttt{2 1 4}。 答案是 \texttt{3000000000}，在本書測試的環境
+下印出 \texttt{-1294967296}。
+\end{itemize}
+
 \section{本章常見錯誤}
 \label{sec:dsu-pitfalls}
 
@@ -1336,6 +1676,8 @@ $m_1 m_2$ 種。
 狀態不完整 & 兩台骰子只看一台；以為一定會回到起點 & 第~\ref{sec:ex-dice}~節 \\
 遞迴太深 & 長鏈上遞迴的 DFS 上色、找環 & 第~\ref{sec:cycle-undirected}、
 \ref{sec:ex-cabinets}~節 \\
+關係的加減弄錯 & \texttt{find} 先改 \texttt{parent} 才累加；合併時新邊直接寫
+$-w$；交換兩個根時沒變號 & 第~\ref{sec:dsu-parity}~節 \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -1380,6 +1722,23 @@ bool dfs(int u) {
 \item 從點 5 出發走 $10^{18}$ 步，停在哪裡？
 \item 倍增的 \texttt{up[2][5]} 是多少？
 \end{enumerate}
+
+\item 用第~\ref{sec:dsu-parity}~節隊伍版本的 \texttt{find} 和 \texttt{relate}，
+$n = 4$，依序執行 \texttt{relate(1, 2, 1)}、\texttt{relate(3, 4, 1)}、
+\texttt{relate(2, 3, 0)}、\texttt{relate(1, 4, 1)}。 寫出每一步的回傳值，以及
+之後的 \texttt{parent[1..4]} 和 \texttt{rel[1..4]}。 最後一個說法為什麼不能採納？
+
+\item 有人把帶權並查集的合併寫成：$a$、$b$ 不同群時，直接
+\texttt{parent[a] = b; diff[a] = -w;}，理由是「這樣 $h(a) - h(b) = -w$ 剛好對」。
+它錯在哪裡？ 用範例~\ref{ex:levels} 的前四筆回報說明。
+
+\item 下面兩題各用哪個方法比較合適，為什麼？
+\begin{enumerate}
+\item 先給 $m$ 條「同隊、不同隊」的說法，全部讀完之後，如果不能同時成立，要印出
+一組互相矛盾的說法。
+\item 說法一條一條給，每條都要回答它是已知、矛盾，還是新的資訊；矛盾的丟掉，
+不影響之後的判斷。
+\end{enumerate}
 \end{drills}
 
 \section{實作練習}
@@ -1415,8 +1774,9 @@ bool dfs(int u) {
 \end{center}
 
 本章的三題例題也在 Aki-Judge 上，讀完各節之後可以先自己寫一次再對照。 「兩棟
-宿舍的分配紀錄」和「同隊與不同隊的說法」都是同隊、不同隊的關係，可以用第
-~\ref{sec:dsu-parity}~小節預告的帶權並查集，也可以先建圖再上色，兩種都試試看。
+宿舍的分配紀錄」和「同隊與不同隊的說法」都是同隊、不同隊的關係。 前一題要一筆一
+筆判斷，矛盾的紀錄要丟掉，用第~\ref{sec:dsu-parity}~節的帶權並查集；後一題說法
+一次給完，帶權並查集和建圖上色都可以，兩種都試試看。
 
 \section{讀完你應該會}
 \label{sec:ch7-checklist}
@@ -1432,6 +1792,9 @@ bool dfs(int u) {
 分成兩邊。
 \item 看到每個點只有一個「下一個」的題目，能畫出函數圖，一次算出每個點的尾巴長
 和圈長，並用週期或倍增求出第 $k$ 步的位置。
+\item 看到「同隊或不同隊」「誰比誰高多少」這類兩點之間的關係，能寫出帶權並查集，
+推得出合併時新邊的權重，並分辨一條說法是已知、矛盾還是推不出來；說法一次給完時，
+也能改用建圖上色，說得出兩種做法各適合什麼情況。
 \end{itemize}
 
 \textbf{延伸閱讀}（書末會整理完整的參考資料）
@@ -1481,5 +1844,31 @@ bool dfs(int u) {
 \item 尾巴長 $2$、圈長 $3$，第 $10^{18}$ 步和第 $2 + (10^{18} - 2) \bmod 3 = 4$ 步
 相同（$10^{18} \bmod 3 = 1$）：$5 \to 4 \to 3 \to 1 \to 2$，停在 2。
 \item 從 5 走 $4$ 步，也是 2。
+\end{enumerate}
+
+\item 前三個回傳 \texttt{true}，最後一個回傳 \texttt{false}。 每一步之後的
+\texttt{parent[1..4]}／\texttt{rel[1..4]} 依序是：\texttt{2 2 3 4}／\texttt{1 0 0 0}；
+\texttt{2 2 4 4}／\texttt{1 0 1 0}；第三步根是 2 和 4，一樣大，2 接到 4，
+\texttt{rel[2]} $= 0 \oplus 1 \oplus 0 = 1$，得到 \texttt{2 4 4 4}／\texttt{1 1 1 0}；
+第四步 \texttt{find(1)} 把 1 接到 4，\texttt{rel[1]} $= 1 \oplus 1 = 0$，得到
+\texttt{4 4 4 4}／\texttt{0 1 1 0}。 這時 \texttt{rel[1]} $\oplus$ \texttt{rel[4]}
+$= 0$，已經推得出 1、4 同隊：1、2 不同隊，2、3 同隊，3、4 不同隊，兩次「不同隊」
+抵消。 所以「1、4 不同隊」是矛盾。
+
+\item $a$ 可能不是根。 改掉 \texttt{parent[a]}，$a$ 就和它原本的上一層斷開，原
+本那一群裡不在 $a$ 底下的點，和 $a$ 不再同一群，之前採納的關係也跟著丟了。 範例
+的第 4 筆 \texttt{1 2 3 4} 裡 $a = 2$ 剛好是根，看不出問題。 換成同一件事反過來
+說的 \texttt{1 3 2 -4}，$a = 3$ 原本接在 4 底下，這樣寫會把 3 改接到 2，4 從此和
+1、2、3 不同群，第 5 筆 \texttt{2 1 4} 印出 \texttt{?}，正確答案是 \texttt{5}。
+所以一定要接根，新邊的權重用第~\ref{sec:dsu-parity}~節推出的
+\texttt{diff[b] - diff[a] - w}。
+
+\item
+\begin{enumerate}
+\item 建圖後上色。 說法一次給完，離線就好；BFS 發現衝突時，沿著兩端「是從哪個
+點走來的」往回走到會合點，就得到一圈互相矛盾的說法（和第~\ref{sec:bipartite}~節
+框裡找奇環一樣）。 帶權並查集說不出是哪幾條。
+\item 帶權並查集。 每一條的答案取決於前面丟掉了哪幾條，只能照順序處理；每條都
+重新上色要 $O(m(n + m))$。
 \end{enumerate}
 \end{enumerate}
