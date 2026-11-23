@@ -6,28 +6,26 @@
 
 這本書分兩條線：動態規劃（背包、子序列、區間、位元、數位、樹形）和圖論（DAG 與拓樸排序、並查集、加權最短路徑、最小生成樹），最後一章是綜合練習。 寫法和第 1 本一樣，例題照「題意、想法、程式、複雜度、常見錯誤」的順序寫，動態規劃要說明狀態的意義。 章末有觀念題（附解答）和 Aki-Judge 上的實作題單（只列題名，不附解答）。
 
-- 全書 PDF（草稿，11 章，319 頁）：[`output/book.pdf`](output/book.pdf)
+- 全書 PDF（11 章，350 頁）：[`output/book.pdf`](output/book.pdf)
 - 網頁版：[annotated.codes/learn/algorithms-2](https://annotated.codes/learn/algorithms-2)（一節一頁，手機也好讀）
 - 各章 PDF：[1](output/chapters/01_Knapsack.pdf)、[2](output/chapters/02_SubsequenceDP.pdf)、[3](output/chapters/03_IntervalDP.pdf)、[4](output/chapters/04_BitmaskDP.pdf)、[5](output/chapters/05_DigitDP.pdf)、[6](output/chapters/06_DAGTopo.pdf)、[7](output/chapters/07_DSUCyclesBipartite.pdf)、[8](output/chapters/08_ShortestPaths.pdf)、[9](output/chapters/09_MST.pdf)、[10](output/chapters/10_TreeDP.pdf)、[11](output/chapters/11_Capstone.pdf)
 - 原始碼：`src/`（XeLaTeX）
 
 ## 章節
 
-章號一開始就定好，還沒寫的章先空著，之後補上時已寫的章不用改號。
-
 | # | 章 | 狀態 |
 |---|---|---|
-| 1 | 背包 DP | 草稿 |
-| 2 | 子序列 DP | 草稿 |
-| 3 | 區間 DP | 草稿 |
-| 4 | 位元 DP 與旅行推銷員 | 草稿 |
-| 5 | 數位 DP | 草稿 |
-| 6 | DAG 與拓樸排序 | 草稿 |
-| 7 | 並查集、環與二分圖 | 草稿 |
-| 8 | 加權圖的最短路徑 | 草稿 |
-| 9 | 最小生成樹 | 草稿 |
-| 10 | 樹形 DP | 草稿 |
-| 11 | 綜合練習 | 草稿 |
+| 1 | 背包 DP | 完成 |
+| 2 | 子序列 DP | 完成 |
+| 3 | 區間 DP | 完成 |
+| 4 | 位元 DP 與旅行推銷員 | 完成 |
+| 5 | 數位 DP | 完成 |
+| 6 | DAG 與拓樸排序 | 完成 |
+| 7 | 並查集、環與二分圖 | 完成 |
+| 8 | 加權圖的最短路徑 | 完成 |
+| 9 | 最小生成樹 | 完成 |
+| 10 | 樹形 DP | 完成 |
+| 11 | 綜合練習 | 完成 |
 
 第 1、2、3、6、7、10 章原本是第 1 本的第 15–20 章，拆書時搬到這裡。
 
@@ -36,7 +34,7 @@
 | # | 書名 | 狀態 |
 |---|---|---|
 | 1 | 《C++ 演算法解題 1：APCS 實作題核心》 | 草稿，[cpp-algorithms-book](https://github.com/AkizumiFox/cpp-algorithms-book) |
-| 2 | 《C++ 演算法解題 2：動態規劃與圖論》 | 本書，草稿（11 章寫完） |
+| 2 | 《C++ 演算法解題 2：動態規劃與圖論》 | 本書，完成 |
 | 3 | 《C++ 演算法解題 3：進階資料結構、數學與競賽》 | 規劃中 |
 
 三本都用 C++17，一本接一本讀。

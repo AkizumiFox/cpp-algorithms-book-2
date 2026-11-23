@@ -48,8 +48,8 @@
 
 這一章講怎麼不靠枚舉，直接找出這棵最便宜的樹：\textbf{Kruskal 演算法}把邊由便宜到
 貴排好，能接就接；\textbf{Prim 演算法}從一個點長出一棵樹，每次接上最便宜的往外的
-邊。 兩者都是貪心，理由是同一個交換論證。 之後再看三種變形：總和要最大、圖要自己
-建、路上最窄的一段要盡量寬（瓶頸問題）。
+邊。 兩者都是貪心，理由是同一個交換論證。 之後再看四種變形：總和要最大、圖要自己
+建、路上最窄的一段要盡量寬（瓶頸問題），以及第二便宜的生成樹。
 
 這一章用到：本書第~7~章的並查集（直接沿用那一章的 \texttt{find} 和
 \texttt{unite}，不再重講）；第~8~章的 Dijkstra 演算法和
@@ -450,8 +450,9 @@ $n - 1$ 條，所以它們就是那一棵最小生成樹。 這和第 1 本第~7
 到的仍然是生成樹，而 $g$ 比 $h$ 輕，總權重嚴格變小，和 $T$ 最小矛盾。
 
 在章首的圖上，6--3（權重 $10$）在環 6--3--5--6 上，比 3--5（$3$）和 6--5（$7$）都
-重，所以不管怎麼選，最小生成樹都不會用它。 Kruskal 跳過的每一條邊，其實都是這種
-「環上最重」的邊：它被跳過時兩端已經經由更便宜的邊相通，那條路加上它就是一個環。
+重，所以不管怎麼選，最小生成樹都不會用它。 Kruskal 跳過的每一條邊，其實都是某個
+環上最重的邊（可能有一樣重的）：它被跳過時兩端已經經由不比它貴的邊相通，那條路加
+上它就是一個環。
 
 如果所有的邊權重都不相同，用環性質可以證明最小生成樹只有一棵（本章練習第~2~
 題）。 有相同權重時可能有好幾棵，但總權重都一樣。
@@ -587,9 +588,9 @@ for (int round = 0; round < n; round++) {
 $(2,2)$--$(5,2)$（$3$）、$(0,0)$--$(2,2)$（$4$）、$(5,2)$--$(7,0)$（$4$）、
 $(2,2)$--$(3,10)$（$9$），總和 $20$。
 
-在本書測試的環境下，$n = 5000$ 個隨機的點，這個寫法（補上讀入和輸出）約 $0.04$ 秒，記憶體約
+在本書測試的環境下，$n = 5000$ 個隨機的點，這個寫法（補上讀入和輸出）約 $0.03$ 秒，記憶體約
 $3$ MB。 把全部 $12497500$ 條邊存下來跑 Kruskal，得到同樣的答案，但要約
-$0.72$ 秒和約 $199$ MB，記憶體已經超過很多題目的限制。 輸入直接給一個
+$0.81$ 秒和約 $198$ MB，記憶體已經超過很多題目的限制。 輸入直接給一個
 $n \times n$ 的鄰接矩陣（第 1 本第~11~章）時，也是同樣的情況，用這個寫法最省事。
 
 \subsection{選哪一個}
@@ -978,9 +979,9 @@ $2 \times 10^9$，已經超過 \texttt{int}。
 上：
 
 \begin{center}
-\fbox{\parbox{0.88\linewidth}{在\textbf{最小}生成樹上，$u$ 到 $v$ 那條唯一的路，路上
-最大的邊，是所有 $u$ 到 $v$ 的路線裡最小的。 在\textbf{最大}生成樹上，$u$ 到 $v$
-那條路上最小的邊，是所有路線裡最大的。}}
+\fbox{\parbox{0.88\linewidth}{每一條 $u$ 到 $v$ 的路線各取路上最大的邊，其中最小
+的值，等於\textbf{最小}生成樹上 $u$ 到 $v$ 那條唯一的路上最大的邊。 反過來，各路線
+取路上最小的邊，其中最大的值，等於\textbf{最大}生成樹上那條路上最小的邊。}}
 \end{center}
 
 用章首的圖看一個例子。 從 6 到 5 有一條直接的線，權重 $7$。 最小生成樹上的路是
@@ -1013,9 +1014,8 @@ $2 \times 10^9$，已經超過 \texttt{int}。
 $2 \times 10^5$ 時來不及。
 
 做法是先把全部詢問讀進來，依 $x$ 由小到大排序，再跟著詢問把邊一條一條加進並查
-集。 這種「先讀完所有詢問，照自己方便的順序回答，最後再照原本的順序輸出」的做法，
-叫\textbf{離線}（offline）處理。 第~7~章練習第~2~題把刪邊倒過來變成加邊，也是離
-線處理。
+集。 這是第~7~章 7.6 節說過的離線處理：先讀完所有詢問，照自己方便的順序回答，最
+後再照原本的順序輸出。 第~7~章練習第~2~題把刪邊倒過來變成加邊，也是離線處理。
 
 \begin{code}{cpp}{只用權重不超過 x 的邊，a 和 b 連不連通}
 sort(edges.begin(), edges.end(),
@@ -1198,7 +1198,7 @@ int main() {
         }
     }
     // 第二步：從器材室在森林上 BFS，cap[v] = 路上最窄的走廊
-    const long long INF = 2e9;
+    const long long INF = 1e18;
     vector<long long> cap(n + 1, -1);   // -1：到不了
     cap[1] = INF;
     queue<int> bfs;
@@ -1265,7 +1265,7 @@ $r_v \le x$ 的個數；\texttt{lower\_bound(..., x)} 找第一個 $\ge x$ 的�
 \end{itemize}
 
 \textbf{複雜度}：排序走廊 $O(m \log m)$，BFS $O(n)$，排序區間端點 $O(n \log n)$，每台
-推車 $O(\log n)$。 最大的測試資料在本書測試的環境下約 $0.06$ 秒。
+推車 $O(\log n)$。 最大的測試資料在本書測試的環境下約 $0.05$ 秒。
 
 \subsection{常見錯誤}
 
@@ -1281,13 +1281,356 @@ $r_v \le x$ 的個數；\texttt{lower\_bound(..., x)} 找第一個 $\ge x$ 的�
 被算進去，範例 1 印出 \texttt{5 3 4 3 2 2}。
 \end{itemize}
 
+\section{次小生成樹}
+\label{sec:second-mst}
+
+回到章首的工業區。 管委會要把 $23$ 萬元的方案送去審查，想先準備一個備案：如果這
+個方案被退回，換一個不完全相同的拉法，最少要花多少？ 這是在問所有生成樹裡第二便
+宜的那一棵，叫\textbf{次小生成樹}（second-best minimum spanning tree）。
+
+「第二便宜」有兩種意思，題目要先看清楚：
+
+\begin{itemize}
+\item \textbf{非嚴格}：所有生成樹的總權重由小到大排成一列，一樣重的也分開列，取第
+二個。 最小生成樹不只一棵時，答案就是最小值。
+\item \textbf{嚴格}：只看總權重比最小值大的生成樹，取其中最小的。 圖本身就是一棵
+樹、或所有生成樹都一樣重時，這樣的樹不存在。
+\end{itemize}
+
+章首的圖有 $55$ 棵生成樹，總權重由小到大是 $23, 24, 24, 24, 25, \ldots$，兩種意思
+的答案都是 $24$。 圖~\ref{fig:mst-cut} 左邊的 $T$（不算虛線）就是其中一棵。 下面把
+生成樹 $T$ 的總權重寫成 $w(T)$，邊 $e$ 的權重寫成 $w(e)$；$T + e - f$ 表示 $T$ 加上
+邊 $e$、再拿掉邊 $f$。
+
+\subsection{只和最小生成樹差一條邊}
+
+暴力解是第~\ref{sec:mst-vs-sp}~節的枚舉，把所有生成樹的總權重都算出來。 下面的
+性質把要找的範圍縮小很多。 設 $T$ 是 Kruskal 選出來的最小生成樹，不在 $T$ 上的邊
+叫\textbf{非樹邊}。 把一條非樹邊 $e = (u, v)$ 加進 $T$，會和 $T$ 上 $u$ 到 $v$ 的
+路圍成一個環；拿掉環上任何一條樹邊 $f$，又是一棵生成樹。 本章練習第~3~題已經這樣
+換過一次。
+
+\begin{center}
+\fbox{\parbox{0.88\linewidth}{設 $T$ 是一棵最小生成樹，$T^*$ 是另一棵生成樹。 一定
+找得到一條非樹邊 $e$ 和環上的一條樹邊 $f$，讓 $T + e - f$ 的總權重不超過 $T^*$。
+所以次小生成樹（非嚴格）可以只在「$T$ 換掉一條邊」的樹裡找。}}
+\end{center}
+
+證明是交換論證。
+
+\begin{itemize}
+\item \textbf{找一對可以交換的邊。} $T^*$ 和 $T$ 不同，所以有一條邊 $f$ 在 $T$ 裡、
+不在 $T^*$ 裡。 把 $f$ 從 $T$ 拿掉，$T$ 分成兩塊，這是一個切割。 $T^*$ 上 $f$ 的兩
+端之間有一條路，它從一塊走到另一塊，路上一定有一條邊 $e$ 跨過切割。 $T - f$ 沒
+有跨過切割的邊，所以 $e$ 不在 $T$ 裡，是非樹邊。
+\item \textbf{兩邊各換一次都合法。} $T_1 = T + e - f$：$e$ 把兩塊接回來，是生成樹，
+而且 $f$ 在 $e$ 的環上。 $T_2 = T^* + f - e$：$f$ 和 $T^*$ 上那條路圍成一個環，$e$
+在這個環上，拿掉它仍然連通，也是生成樹。
+\item \textbf{總權重。} $T_1$ 和 $T_2$ 合起來用的邊，正好是 $T$ 和 $T^*$ 合起來用的
+邊，所以 $w(T_1) + w(T_2) = w(T) + w(T^*)$。 $T$ 是最小生成樹，$w(T_2) \ge w(T)$，
+所以 $w(T_1) \le w(T^*)$。
+\end{itemize}
+
+\textbf{嚴格的情況。} 取 $T^*$ 是嚴格次小生成樹，$w(T^*) > w(T)$。 照上面換一次：
+如果 $w(T_1) > w(T)$，$T_1$ 只和 $T$ 差一條邊，總權重介於 $w(T)$ 和 $w(T^*)$ 之間
+（可以等於 $w(T^*)$），就找到了。 如果 $w(T_1) = w(T)$，那 $w(T_2) = w(T^*)$，
+$T_2$ 也是一棵嚴格次小生成樹，而且和 $T$ 相同的邊比 $T^*$ 多一條（多了 $f$，少掉的
+$e$ 本來就不在 $T$ 裡）。 拿 $T_2$ 當新的 $T^*$ 再換一次。 每換一次相同的邊就多一
+條，而 $T_2$ 的總權重一直是 $w(T^*)$，不可能變成 $T$ 本身，所以換有限次之後一定
+會遇到第一種情況。 結論：嚴格次小生成樹也只要在「$T$ 換掉一條邊」的樹裡找，只是
+換完總權重沒變的不算。
+
+還有一個事實會用到：非樹邊 $e$ 的環上，每一條樹邊都不比 $e$ 重。 如果環上有一條
+$f$ 比 $e$ 重，$T + e - f$ 就比 $T$ 輕，和 $T$ 最小矛盾。
+
+\subsection{$O(n^2)$ 的做法}
+
+照上面的性質，每一條非樹邊 $e = (u, v)$ 換掉環上的哪一條最划算？ 換完的總權重是
+$w(T) + w(e) - w(f)$，要讓它小，$f$ 就挑環上最重的樹邊，也就是 $T$ 上 $u$ 到 $v$
+那條路的最大邊，記成 $\mathrm{mx}[u][v]$。 所以
+\[
+\text{非嚴格的次小} = \min_{\text{非樹邊 } e = (u, v)}
+\bigl(w(T) + w(e) - \mathrm{mx}[u][v]\bigr).
+\]
+
+每一條非樹邊都沿著樹走一次去找最大邊，一次 $O(n)$，全部 $O(nm)$。 $n = 2000$、
+$m = 2 \times 10^5$ 時是 $4 \times 10^8$，太慢。 改成先把任兩點的
+$\mathrm{mx}$ 都算好：從每一個點 $s$ 在樹上做一次 BFS，從 $u$ 走到下一個點 $v$、經過
+的邊權重是 $w$ 時，
+\[
+\mathrm{mx}[s][v] = \max(\mathrm{mx}[s][u],\ w).
+\]
+樹上兩點之間只有一條路，BFS 走到 $v$ 的那條就是它。 一次 BFS 是 $O(n)$，做 $n$ 次
+是 $O(n^2)$，之後每一條非樹邊 $O(1)$ 查表。
+
+\textbf{嚴格的版本。} 非樹邊 $e$ 比 $\mathrm{mx}[u][v]$ 重時，和上面一樣拿掉最大邊。
+如果 $w(e) = \mathrm{mx}[u][v]$（上一小節說過 $e$ 不會更輕），拿掉最大邊總權重不
+變，不算數；要拿掉的是環上\textbf{比 $w(e)$ 輕}的邊裡最重的，也就是路上嚴格小於
+最大值的邊裡最大的，記成 $\mathrm{sec}[u][v]$。 路上的邊全部和 $e$ 一樣重時，$e$ 換
+不出嚴格比較貴的樹，跳過。
+
+所以 BFS 時每個點要記兩個數：最大值 $a$，和嚴格小於 $a$ 的最大值 $b$（沒有就記成
+$-1$）。 走過一條權重 $w$ 的邊時，$w > a$ 就變成 $(w, a)$，舊的最大退成第二大；
+$b < w < a$ 就變成 $(a, w)$；其他情況不變。 注意 $w = a$ 時不變，一樣大的不算第二
+大。 下一小節的追蹤表有實際的例子。
+
+\subsection{例題：基地台光纖的備案}
+\label{sec:ex-backup}
+
+\textbf{題意}（本節自己設計的題目，不在 Aki-Judge 上）
+
+\begin{itemize}
+\item 電信公司要用光纖把 $n$ 座基地台連起來，有 $m$ 條可以施工的路線，第 $i$ 條連
+接基地台 $u_i$ 和 $v_i$，造價 $w_i$。 同一對基地台之間可能有好幾條路線。
+\item 一個方案是從 $m$ 條裡挑出剛好 $n - 1$ 條，讓所有基地台相通。 挑的路線只要
+有一條不同，就是不同的方案。
+\item 把所有方案的總造價由小到大排好（一樣的也分開列），輸出三個數：第一個、第二
+個，以及比第一個大的數裡最小的。 後兩個不存在時輸出 $-1$。
+\item $2 \le n \le 2000$，$n - 1 \le m \le 2 \times 10^5$，$1 \le w_i \le 10^9$，
+$u_i \ne v_i$。 保證全部選上時所有基地台相通。
+\end{itemize}
+
+\textbf{想法}
+
+三個數依序是最小生成樹、非嚴格次小、嚴格次小。 先用 Kruskal 建出 $T$，同時記下每
+一條邊在不在樹上；再照上一小節，從每個點 BFS 填好 $\mathrm{mx}$ 和 $\mathrm{sec}$
+兩張表；最後枚舉非樹邊。
+
+下圖是範例的六座基地台。 權重 $6$ 的邊有四條，Kruskal 一定選 3--4（基地台 4 只
+能靠它或 4--6 接上），另外三條 2--3、1--3、3--5 都能把 3 接到 $\{1, 2, 5\}$，選哪
+一條要看排序後的順序，三種都是最小生成樹，總權重 $26$。 下面以選到 2--3 的情況來
+算；換成另外兩棵，三個答案也一樣，因為證明對任何一棵最小生成樹都成立。
+
+\begin{center}
+\begin{tikzpicture}[x=1.4cm, y=1.25cm]
+\node[mstv] (1) at (0,2) {1};
+\node[mstv] (2) at (1.6,1) {2};
+\node[mstv] (3) at (3.2,2) {3};
+\node[mstv] (4) at (5,2) {4};
+\node[mstv] (5) at (1.6,-0.4) {5};
+\node[mstv] (6) at (5,-0.4) {6};
+\draw[mstebad] (1) -- node[mstw, below left] {4} (2);
+\draw[mstehl] (2) -- node[mstw, below right] {6} (3);
+\draw[mstehl] (3) -- node[mstw, above] {6} (4);
+\draw[mstehl] (2) -- node[mstw, right] {3} (5);
+\draw[mstehl] (5) -- node[mstw, below] {7} (6);
+\draw[mstenew] (1) -- node[mstw, above] {6} (3);
+\draw[mste, dashed] (1) -- node[mstw, left] {8} (5);
+\draw[mste, dashed] (3) -- node[mstw, pos=0.65] {6} (5);
+\draw[mste, dashed] (4) -- node[mstw, right] {10} (6);
+\end{tikzpicture}
+\diagcaption{範例的六座基地台。 粗線（含紅色虛線）是最小生成樹，細虛線是非樹邊。
+嚴格次小生成樹加進 1--3（橘色虛線）、拿掉 1--2（紅色虛線），總權重
+$26 + 6 - 4 = 28$。}
+\label{fig:mst-backup}
+\end{center}
+
+從點 1 出發的 BFS 算出 $\mathrm{mx}[1][\cdot]$ 和 $\mathrm{sec}[1][\cdot]$：
+
+\begin{center}
+\begin{tabular}{cccl}
+\toprule
+點 & 從哪裡走來 & $(\mathrm{mx}, \mathrm{sec})$ & 說明 \\
+\midrule
+1 & 起點 & $(-1, -1)$ & 還沒走過任何邊 \\
+2 & 1，權重 4 & $(4, -1)$ & $4 > -1$ \\
+3 & 2，權重 6 & $(6, 4)$ & $6 > 4$，舊的 4 退成第二大 \\
+5 & 2，權重 3 & $(4, 3)$ & $-1 < 3 < 4$ \\
+4 & 3，權重 6 & $(6, 4)$ & $6 = 6$，不變 \\
+6 & 5，權重 7 & $(7, 4)$ & $7 > 4$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+每個點都這樣做一次，就有了整張表。 接著枚舉四條非樹邊：
+
+\begin{center}
+\begin{tabular}{ccccccc}
+\toprule
+非樹邊 & 權重 & 樹上的路 & mx & sec & 非嚴格 & 嚴格 \\
+\midrule
+1--3 & 6 & 1--2--3 & 6 & 4 & $26 + 6 - 6 = 26$ & $26 + 6 - 4 = 28$ \\
+3--5 & 6 & 3--2--5 & 6 & 3 & $26 + 6 - 6 = 26$ & $26 + 6 - 3 = 29$ \\
+1--5 & 8 & 1--2--5 & 4 & 3 & $26 + 8 - 4 = 30$ & $30$ \\
+4--6 & 10 & 4--3--2--5--6 & 7 & 6 & $26 + 10 - 7 = 29$ & $29$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+非嚴格取最小是 $26$，嚴格取最小是 $28$。 前兩列的非樹邊和路上的最大邊一樣重，嚴
+格的那一欄改用 sec；後兩列比最大邊重，兩欄相同。
+
+\textbf{程式}
+
+\begin{example}[label=ex:mst-backup]{cpp}{(backup.cpp) 基地台光纖的備案}
+#include <algorithm>
+#include <iostream>
+#include <queue>
+#include <utility>
+#include <vector>
+using namespace std;
+
+struct Edge {
+    int u, v;
+    long long w;
+};
+
+vector<int> parent, sz;
+
+int find(int x) {
+    return parent[x] == x ? x : parent[x] = find(parent[x]);
+}
+
+bool unite(int a, int b) {
+    a = find(a);
+    b = find(b);
+    if (a == b) {
+        return false;
+    }
+    if (sz[a] > sz[b]) {
+        swap(a, b);
+    }
+    parent[a] = b;
+    sz[b] += sz[a];
+    return true;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, m;
+    cin >> n >> m;
+    vector<Edge> edges(m);
+    for (Edge &e : edges) {
+        cin >> e.u >> e.v >> e.w;
+    }
+    // 第一步：Kruskal，記下哪些邊在樹上
+    sort(edges.begin(), edges.end(),
+         [](const Edge &a, const Edge &b) { return a.w < b.w; });
+    parent.resize(n + 1);
+    sz.assign(n + 1, 1);
+    for (int i = 1; i <= n; i++) {
+        parent[i] = i;
+    }
+    vector<bool> inTree(m, false);
+    vector<vector<pair<int, long long>>> tree(n + 1);
+    long long total = 0;
+    for (int i = 0; i < m; i++) {
+        const Edge &e = edges[i];
+        if (unite(e.u, e.v)) {
+            inTree[i] = true;
+            total += e.w;
+            tree[e.u].push_back({e.v, e.w});
+            tree[e.v].push_back({e.u, e.w});
+        }
+    }
+    // 第二步：從每個點 s 在樹上 BFS
+    // mx[s][v]：s 到 v 的路上最大的邊
+    // sec[s][v]：比 mx 小的邊裡最大的；-1 表示沒有
+    vector<vector<long long>> mx(n + 1), sec(n + 1);
+    for (int s = 1; s <= n; s++) {
+        mx[s].assign(n + 1, -1);
+        sec[s].assign(n + 1, -1);
+        vector<bool> seen(n + 1, false);
+        seen[s] = true;
+        queue<int> bfs;
+        bfs.push(s);
+        while (!bfs.empty()) {
+            int u = bfs.front();
+            bfs.pop();
+            for (auto [v, w] : tree[u]) {
+                if (seen[v]) {
+                    continue;
+                }
+                seen[v] = true;
+                long long a = mx[s][u], b = sec[s][u];
+                if (w > a) {                  // 舊的最大退成第二
+                    b = a;
+                    a = w;
+                } else if (w < a && w > b) {  // w == a 不算
+                    b = w;
+                }
+                mx[s][v] = a;
+                sec[s][v] = b;
+                bfs.push(v);
+            }
+        }
+    }
+    // 第三步：枚舉非樹邊，拿掉環上的一條樹邊
+    const long long INF = 1e18;
+    long long loose = INF, strict = INF;
+    for (int i = 0; i < m; i++) {
+        if (inTree[i]) {
+            continue;
+        }
+        const Edge &e = edges[i];
+        long long a = mx[e.u][e.v], b = sec[e.u][e.v];  // e.w >= a
+        loose = min(loose, total + e.w - a);
+        if (e.w > a) {
+            strict = min(strict, total + e.w - a);
+        } else if (b != -1) {  // e.w == a：拿第二大
+            strict = min(strict, total + e.w - b);
+        }
+    }
+    cout << total << ' ' << (loose == INF ? -1 : loose) << ' '
+         << (strict == INF ? -1 : strict) << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+6 9 \\
+1 2 4 \\
+2 3 6 \\
+3 4 6 \\
+2 5 3 \\
+5 6 7 \\
+1 3 6 \\
+4 6 10 \\
+1 5 8 \\
+3 5 6 \\
+}{
+26 26 28 \\
+}
+
+\begin{itemize}
+\item \texttt{inTree} 跟著排序後的邊編號記，不用改 \texttt{Edge}。 重邊也不用特別
+處理：和樹邊平行的那一條，環上只有那條樹邊。
+\item 沒有非樹邊（$m = n - 1$）時兩個 \texttt{min} 都沒有更新過，留在
+\texttt{INF}，印出 \texttt{-1}。
+\item 不想存表的話，把非樹邊掛在一個端點上，從 $s$ BFS 完就處理掛在 $s$ 上的邊，
+記憶體降到 $O(n + m)$。
+\end{itemize}
+
+\textbf{複雜度}：Kruskal $O(m \log m)$，$n$ 次 BFS $O(n^2)$，枚舉非樹邊 $O(m)$，整體
+$O(m \log m + n^2)$。 兩張表各 $(n + 1)^2$ 個 \texttt{long long}，$n = 2000$ 時合起來
+約 $64$ MB。 在本書測試的環境下，$n = 2000$、$m = 2 \times 10^5$ 的隨機資料約
+$0.06$ 秒、$69$ MB。
+
+\textbf{更快的做法}：$n$ 到 $10^5$ 時，$n^2$ 的表存不下也算不完。 可以把樹定一個
+根，用倍增（第~7~章函數圖用過的想法）配合\textbf{最近共同祖先}（lowest common ancestor，LCA），每一對在 $O(\log n)$
+內查出路上的最大邊和第二大，整體 $O(m \log n)$。 這部分留到第 3 本。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{嚴格次小時把和最大邊一樣重的非樹邊直接跳過}：範例的 1--3 和 3--5 被跳過，印出 \texttt{26 26 29}，正確是 \texttt{26 26 28}。
+\item \textbf{第二大把一樣大的也算進去}：BFS 的條件寫成 \texttt{w > b}，漏了
+\texttt{w < a}。 輸入 \texttt{3 3}、\texttt{1 2 5}、\texttt{2 3 5}、\texttt{1 3 5}，
+三棵生成樹都是 $10$，正確輸出 \texttt{10 10 -1}；這樣寫，路上兩條 $5$ 會記成最大
+$5$、第二大 $5$，印出 \texttt{10 10 10}。
+\item \textbf{忘了次小可能不存在}：直接印出 \texttt{loose} 和 \texttt{strict}。 輸入
+\texttt{2 1}、\texttt{1 2 5} 只有一棵生成樹，正確輸出 \texttt{5 -1 -1}，這樣寫印出
+兩個 \texttt{1000000000000000000}。
+\end{itemize}
+
 \section{本章常見錯誤}
 \label{sec:mst-pitfalls}
 
 前面各節的錯誤，歸納起來是下面幾類。
 
 \begin{center}
-\begin{tabular}{p{0.22\linewidth}p{0.52\linewidth}p{0.16\linewidth}}
+\begin{tabular}{p{0.19\linewidth}p{0.51\linewidth}p{0.2\linewidth}}
 \toprule
 錯誤 & 例子 & 見 \\
 \midrule
@@ -1304,6 +1647,8 @@ $r_v \le x$ 的個數；\texttt{lower\_bound(..., x)} 找第一個 $\ge x$ 的�
 第~\ref{sec:prim-dense}、\ref{sec:ex-lamps}~節 \\
 \texttt{int} 溢位 & 總和、座標相減用 \texttt{int} & 第~\ref{sec:ex-buddy}、
 \ref{sec:ex-lamps}~節 \\
+次小生成樹 & 跳過和最大邊一樣重的非樹邊；第二大含相等的
+& 第~\ref{sec:ex-backup}~節 \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -1333,9 +1678,8 @@ $r_v \le x$ 的個數；\texttt{lower\_bound(..., x)} 找第一個 $\ge x$ 的�
 最小生成樹總和是多少？ 只用原本最小生成樹的五條邊和這條新邊，能不能算出答案？
 說明理由。
 
-
 \item 有人把第~\ref{sec:prim}~節 Prim 的主迴圈改成放進堆的時候就標記，像 BFS 一樣：
-\begin{code}{cpp}{練習 6}
+\begin{code}{cpp}{練習 4}
 inTree[1] = true;
 pq.push({0, 1});
 while (!pq.empty()) {
@@ -1352,6 +1696,20 @@ while (!pq.empty()) {
 }
 \end{code}
 給一組會讓它算錯的輸入，說明錯在哪裡。
+
+\item 章首的圖（圖~\ref{fig:mst-factories}）的最小生成樹是 1--6、3--5、1--2、2--3、
+3--4。
+\begin{enumerate}
+\item 對每一條非樹邊，寫出它在樹上的路、路上最大的邊，以及換掉那條邊之後的總權重。
+\item 非嚴格和嚴格的次小生成樹總權重各是多少？ 總權重是這個值的生成樹有幾棵？
+\end{enumerate}
+
+\item 判斷下面每一句話對不對。 對的說明理由，錯的給一個反例。
+\begin{enumerate}
+\item 求嚴格次小生成樹，只要照非嚴格的做法，把「換完總權重沒變」的候選丟掉，剩下
+的取最小。
+\item 所有邊的權重都不相同時，非嚴格和嚴格的次小生成樹一樣重。
+\end{enumerate}
 \end{drills}
 
 \section{實作練習}
@@ -1380,10 +1738,13 @@ Kruskal 與建圖 & \akiref{straight-line-street-lamp-cables}{只能拉直線的
 \end{tabular}
 \end{center}
 
-本章的三題例題也在 Aki-Judge 上，讀完各節之後可以先自己寫一次再對照。 「倉庫軌道的
+第~\ref{sec:ex-buddy}、\ref{sec:ex-lamps}、\ref{sec:ex-carts}~節的三題例題也在
+Aki-Judge 上，讀完各節之後可以先自己寫一次再對照。 「倉庫軌道的
 轉轍器」先想清楚什麼是點，點的數量不是交叉處的個數。 「路口最多接幾條車道」要考慮
 所有的最小生成樹，把同一個權重的邊當成一組來看。 「新變電所的選址提案」和本章練習
-第~3~題有關，但要很快查出樹上一條路的最大邊，需要第~7~章函數圖用過的倍增想法。
+第~3~題有關，$n \le 2000$ 的子題可以直接用第~\ref{sec:second-mst}~節的
+$\mathrm{mx}$ 表；$n$ 更大時要很快查出樹上一條路的最大邊，需要第~7~章函數圖用過
+的倍增想法。
 
 \section{讀完你應該會}
 \label{sec:ch9-checklist}
@@ -1397,6 +1758,8 @@ Kruskal 與建圖 & \akiref{straight-line-street-lamp-cables}{只能拉直線的
 \item 能寫出用堆的 Prim，以及稠密圖上 $O(n^2)$ 的 Prim，並依輸入的形式選一個。
 \item 看到「路上最窄（最陡）的一段」這類問題，能用最大（最小）生成樹求出瓶頸，或
 把詢問依門檻排序，用並查集離線回答。
+\item 能用「從每個點在樹上 BFS」的 $O(n^2)$ 表求出次小生成樹，分清楚非嚴格和嚴格
+兩種（嚴格的要多記第二大的邊），並用交換論證說明為什麼只要換一條邊。
 \end{itemize}
 
 \textbf{延伸閱讀}（書末會整理完整的參考資料）
@@ -1406,9 +1769,9 @@ Kruskal 與建圖 & \akiref{straight-line-street-lamp-cables}{只能拉直線的
 Kruskal、Prim 和並查集，篇幅短，例子清楚。
 \item Thomas H. Cormen 等，\textit{Introduction to Algorithms}，第 4 版，第 21 章：
 用「目前選的邊包含在某棵最小生成樹裡」這個迴圈不變量，一次證明 Kruskal 和 Prim；
-章末問題有次佳生成樹和瓶頸生成樹。
+章末問題 21-1 是次小生成樹（假設權重都不同），21-4 是瓶頸生成樹。
 \item Steven Halim 等，\textit{Competitive Programming 4}，Book 1，4.3 節：整理了最
-大生成樹、指定邊、最小生成森林、minimax 路徑、次佳生成樹等變形。
+大生成樹、指定邊、最小生成森林、minimax 路徑、次小生成樹等變形。
 \end{itemize}
 
 \addcontentsline{toc}{section}{練習解答}
@@ -1436,8 +1799,8 @@ $\{2, 4\}$ 接起來）、跳過 2--3、選 3--5、跳過 4--5，這時已經選
 嚴格變小，矛盾。
 \item 錯。 如果某個點只有一條邊連出去，那條邊一定要選，不管它多重。 例如兩個點
 之間只有一條權重 $100$ 的邊。
-\item 對。 設 $T_1 \ne T_2$ 都是最小生成樹，$e$ 是只出現在其中一棵的邊裡最輕的，不妨
-設在 $T_1$。 $e$ 加進 $T_2$ 形成的環上有一條不在 $T_1$ 的邊 $f$，$f$ 比 $e$ 重，
+\item 對。 設 $T_1 \ne T_2$ 都是最小生成樹，$e$ 是只出現在其中一棵的邊裡最輕的，假設
+它在 $T_1$ 裡（在 $T_2$ 裡就把兩棵的名字對調）。 $e$ 加進 $T_2$ 形成的環上有一條不在 $T_1$ 的邊 $f$，$f$ 比 $e$ 重，
 $T_2$ 用 $e$ 換掉 $f$ 會嚴格變小，矛盾。
 \item 前半句對：每一棵生成樹都剛好 $n - 1$ 條邊，總權重都多了 $10(n - 1)$，誰最
 小不會變。 後半句錯：路徑的邊數不一定相同。 例如 $s$--$t$ 權重 $25$，另一條路
@@ -1450,10 +1813,33 @@ $s$--$a$--$t$ 兩段各 $5$。 原本走 $s$--$a$--$t$ 是 $10$；各加 $10$ �
 邊 $g$，被 Kruskal 跳過時兩端已經經由更便宜的舊樹邊相通，$g$ 是那個環上最重的（這
 張圖權重都不同）；加了新邊這個環還在，照環性質 $g$ 仍然用不到。
 
-
 \item 輸入 \texttt{3 3}、\texttt{1 2 10}、\texttt{1 3 1}、\texttt{3 2 1}，正確答案是
 $2$（1--3 和 3--2）。 從 1 開始，2 和 3 一放進堆就都被標記；拿出 3 時，2 已經標記
 過，3--2 這條便宜的邊不會被放進堆；之後拿出 2，用的是 1--2 的 $10$，算出 $11$。
 放進堆時只知道「有一條邊可以接到 $v$」，之後可能出現更便宜的邊，所以要等拿出來時
 才能確定。 BFS 可以放進去就標記，是因為 BFS 的每條邊都一樣長，先發現的一定最近。
+
+\item
+\begin{enumerate}
+\item 2--6（$5$）：路是 2--1--6，最大是 1--2 的 $4$，換完 $23 + 5 - 4 = 24$。
+6--5（$7$）：路是 6--1--2--3--5，最大是 2--3 的 $6$，換完 $24$。 5--4（$9$）：路是
+5--3--4，最大是 3--4 的 $8$，換完 $24$。 6--3（$10$）：路是 6--1--2--3，最大是
+$6$，換完 $27$。
+\item 都是 $24$。 這張圖權重都不同，最小生成樹只有一棵（練習 2），所以兩種意思相
+同。 總權重 $24$ 的有三棵，就是 (a) 換出來的前三棵。 理由：任取一棵總權重 $24$ 的
+生成樹 $T^*$，做第~\ref{sec:second-mst}~節的交換，$w(T_1) + w(T_2) = 23 + 24 = 47$。
+除了最小生成樹本身，每一棵生成樹都至少 $24$；$T_1$ 含有非樹邊，至少 $24$，所以
+$T_2$ 只能是最小生成樹，$T^* = T_1$ 只和最小生成樹差一條邊。 換一條邊得到 $24$ 的
+只有 (a) 的前三種。
+\end{enumerate}
+
+\item
+\begin{enumerate}
+\item 錯。 三個點，1--2 權重 $1$、2--3 權重 $2$、1--3 權重 $2$。 最小生成樹是 1--2
+和 2--3，總權重 $3$。 唯一的非樹邊 1--3 和路上的最大邊 2--3 一樣重，換完還是 $3$，
+丟掉之後沒有候選，會說嚴格次小不存在。 其實 2--3 加 1--3 是一棵總權重 $4$ 的生成
+樹，要拿掉的是路上第二大的 1--2。
+\item 對。 權重都不同時最小生成樹只有一棵（練習 2），其他每一棵生成樹都比它重，所
+以「和它不同的樹裡最輕的」本來就比最小值大，兩種意思是同一棵。
+\end{enumerate}
 \end{enumerate}
